@@ -16,12 +16,33 @@ if (!has_valid_participant_session()) {
     redirect('index.php');
 }
 
-function required_scale_value(string $key): int
+function validate_int_in_range(mixed $value, int $min, int $max): ?int
 {
-    $value = filter_input(INPUT_POST, $key, FILTER_VALIDATE_INT, [
-        'options' => ['min_range' => 1, 'max_range' => 7],
+    if (is_int($value)) {
+        return $value >= $min && $value <= $max ? $value : null;
+    }
+
+    if (!is_string($value)) {
+        return null;
+    }
+
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+
+    $validated = filter_var($value, FILTER_VALIDATE_INT, [
+        'options' => ['min_range' => $min, 'max_range' => $max],
     ]);
 
+    return $validated === false ? null : $validated;
+}
+
+function required_mcq_value(string $key): int
+{
+    $sessionAnswers = session_get('postsurvey_answers', []);
+    $rawValue = $_POST[$key] ?? (is_array($sessionAnswers) ? ($sessionAnswers[$key] ?? null) : null);
+    $value = validate_int_in_range($rawValue, 1, 5);
     if ($value === false || $value === null) {
         http_response_code(400);
         exit('Invalid value for ' . $key . '.');
@@ -32,7 +53,8 @@ function required_scale_value(string $key): int
 
 function required_numeric_response(string $key): string
 {
-    $raw = trim((string) ($_POST[$key] ?? ''));
+    $sessionAnswers = session_get('postsurvey_answers', []);
+    $raw = trim((string) ($_POST[$key] ?? (is_array($sessionAnswers) ? ($sessionAnswers[$key] ?? '') : '')));
     if ($raw === '' || !is_numeric($raw)) {
         http_response_code(400);
         exit('Invalid value for ' . $key . '.');
@@ -41,19 +63,22 @@ function required_numeric_response(string $key): string
     return $raw;
 }
 
-$aiLit1 = required_scale_value('ai_lit_1');
-$aiLit2 = required_scale_value('ai_lit_2');
-$aiLit3 = required_scale_value('ai_lit_3');
-$aiLit4 = required_scale_value('ai_lit_4');
-$aiLit5 = required_scale_value('ai_lit_5');
+$aiLit1 = required_mcq_value('ai_lit_1');
+$aiLit2 = required_mcq_value('ai_lit_2');
+$aiLit3 = required_mcq_value('ai_lit_3');
+$aiLit4 = required_mcq_value('ai_lit_4');
+$aiLit5 = required_mcq_value('ai_lit_5');
+$aiLit6 = required_mcq_value('ai_lit_6');
+$instructionNotice = required_mcq_value('instruction_notice');
+$taskRealism = required_mcq_value('task_realism');
 
 $crt1 = required_numeric_response('crt_1');
 $crt2 = required_numeric_response('crt_2');
 $crt3 = required_numeric_response('crt_3');
 
-$allowedAiExperience = ['never', 'occasionally', 'regularly', 'daily'];
-$allowedGender = ['male', 'female', 'non_binary', 'prefer_not_to_say'];
-$allowedEducation = ['high_school', 'bachelors', 'masters', 'phd', 'other'];
+$allowedAiExperience = ['never', 'less_than_monthly', 'few_times_per_month', 'few_times_per_week', 'daily'];
+$allowedGender = ['male', 'female'];
+$allowedEducation = ['secondary_education', 'currently_enrolled_bachelors', 'bachelors', 'masters', 'doctoral_degree', 'prefer_not_to_say'];
 
 $aiExperience = (string) ($_POST['ai_experience'] ?? '');
 $gender = (string) ($_POST['gender'] ?? '');
@@ -98,21 +123,69 @@ if (is_string($postsurveyStartedAt) && $postsurveyStartedAt !== '') {
 }
 
 $pdo = db();
+$hasAiLit6Column = false;
+$hasInstructionNoticeColumn = false;
+$hasTaskRealismColumn = false;
+try {
+    $aiLit6Check = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'ai_lit_6'");
+    $hasAiLit6Column = $aiLit6Check !== false && $aiLit6Check->fetch() !== false;
+    $instructionNoticeCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'instruction_notice'");
+    $hasInstructionNoticeColumn = $instructionNoticeCheck !== false && $instructionNoticeCheck->fetch() !== false;
+    $taskRealismCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'task_realism'");
+    $hasTaskRealismColumn = $taskRealismCheck !== false && $taskRealismCheck->fetch() !== false;
+} catch (Throwable $e) {
+    $hasAiLit6Column = false;
+    $hasInstructionNoticeColumn = false;
+    $hasTaskRealismColumn = false;
+}
 
-$insert = $pdo->prepare(
-    'INSERT INTO postsurvey_responses
-        (participant_id, ai_lit_1, ai_lit_2, ai_lit_3, ai_lit_4, ai_lit_5, crt_1, crt_2, crt_3, ai_experience, age, gender, education, submitted_at, duration_seconds, short_time_flag)
-     VALUES
-        (:participant_id, :ai_lit_1, :ai_lit_2, :ai_lit_3, :ai_lit_4, :ai_lit_5, :crt_1, :crt_2, :crt_3, :ai_experience, :age, :gender, :education, :submitted_at, :duration_seconds, :short_time_flag)'
-);
+$columns = [
+    'participant_id',
+    'ai_lit_1',
+    'ai_lit_2',
+    'ai_lit_3',
+    'ai_lit_4',
+    'ai_lit_5',
+];
 
-$insert->execute([
+$params = [
     ':participant_id' => $participantId,
     ':ai_lit_1' => $aiLit1,
     ':ai_lit_2' => $aiLit2,
     ':ai_lit_3' => $aiLit3,
     ':ai_lit_4' => $aiLit4,
     ':ai_lit_5' => $aiLit5,
+];
+
+if ($hasAiLit6Column) {
+    $columns[] = 'ai_lit_6';
+    $params[':ai_lit_6'] = $aiLit6;
+}
+
+if ($hasInstructionNoticeColumn) {
+    $columns[] = 'instruction_notice';
+    $params[':instruction_notice'] = $instructionNotice;
+}
+
+if ($hasTaskRealismColumn) {
+    $columns[] = 'task_realism';
+    $params[':task_realism'] = $taskRealism;
+}
+
+$columns = array_merge($columns, [
+    'crt_1',
+    'crt_2',
+    'crt_3',
+    'ai_experience',
+    'age',
+    'gender',
+    'education',
+    'submitted_at',
+    'duration_seconds',
+    'short_time_flag',
+]);
+
+$params = array_merge($params, [
     ':crt_1' => $crt1,
     ':crt_2' => $crt2,
     ':crt_3' => $crt3,
@@ -125,6 +198,16 @@ $insert->execute([
     ':short_time_flag' => $postsurveyShortTimeFlag,
 ]);
 
+$placeholders = array_map(static fn (string $column): string => ':' . $column, $columns);
+$insertSql = sprintf(
+    'INSERT INTO postsurvey_responses (%s) VALUES (%s)',
+    implode(', ', $columns),
+    implode(', ', $placeholders)
+);
+
+$insert = $pdo->prepare($insertSql);
+$insert->execute($params);
+
 $updateParticipant = $pdo->prepare(
     'UPDATE participants
      SET completed_at = :completed_at
@@ -135,5 +218,7 @@ $updateParticipant->execute([
     ':completed_at' => $submittedAt,
     ':participant_id' => $participantId,
 ]);
+
+unset($_SESSION['postsurvey_answers'], $_SESSION['postsurvey_started_at']);
 
 redirect('thankyou.php');

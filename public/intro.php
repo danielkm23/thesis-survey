@@ -19,19 +19,56 @@ require __DIR__ . '/../views/header.php';
     <section class="bg-white shadow rounded-xl p-8">
         <p class="text-sm text-slate-500 mb-3">Step 0 of 5</p>
         <h1 class="text-2xl font-bold text-slate-800 mb-3">Study Information and Consent</h1>
+        <h2 class="text-lg font-semibold text-slate-800 mb-2">Study description</h2>
         <p class="text-slate-600 mb-3">
-            You will complete 4 short tasks and 1 post-survey. In each task, you will review an AI-generated response
-            and optional supporting documents before providing your own final response.
-        </p>
-        <p class="text-slate-600 mb-3">
-            Your interaction data (for example, response choices and document viewing behavior) will be recorded for
-            research analysis. Do not include personally sensitive information in your answers.
+            You are invited to participate in a research study about how people complete workplace decision tasks using AI-generated responses and supporting documents.
         </p>
         <p class="text-slate-600 mb-6">
-            By selecting "Begin Task 1", you confirm that you are at least 16 years old and consent to participate.
+            During this study, you will be asked to review short workplace scenarios, consider AI-generated responses, and make decisions based on the information provided. In some cases, you may also choose to consult additional documents before making your decision.
         </p>
+
+        <h2 class="text-lg font-semibold text-slate-800 mb-2">Estimated duration</h2>
+        <p class="text-slate-600 mb-6">
+            The study will take approximately 10-15 minutes to complete.
+        </p>
+
+        <h2 class="text-lg font-semibold text-slate-800 mb-2">Voluntary participation</h2>
+        <p class="text-slate-600 mb-6">
+            Your participation in this study is completely voluntary.<br>
+            You may choose not to participate or to stop participating at any time without penalty.
+        </p>
+
+        <h2 class="text-lg font-semibold text-slate-800 mb-2">Confidentiality and anonymity</h2>
+        <p class="text-slate-600 mb-6">
+            All responses will be collected anonymously and used for research purposes only.<br>
+            No personally identifying information will be collected, and your responses will be analyzed in aggregate form.
+        </p>
+
+        <h2 class="text-lg font-semibold text-slate-800 mb-2">Right to withdraw</h2>
+        <p class="text-slate-600 mb-6">
+            You may stop the study at any time by closing your browser window.<br>
+            Any data collected up to that point may still be used in anonymized form unless you request otherwise.
+        </p>
+
+        <h2 class="text-lg font-semibold text-slate-800 mb-2">Instructions</h2>
+        <p class="text-slate-600 mb-3">
+            Please read each task carefully and respond as you normally would in a workplace situation.<br>
+            You may consult any available information before making your decision.
+        </p>
+        <p class="text-slate-600 mb-6">
+            There are no trick questions.<br>
+            We are interested in your natural decision-making process.
+        </p>
+
+        <h2 class="text-lg font-semibold text-slate-800 mb-2">Consent confirmation</h2>
+        <p class="text-slate-600 mb-2">Before continuing, please confirm that:</p>
+        <ul class="list-disc pl-6 text-slate-600 mb-6 space-y-1">
+            <li>You are at least 18 years old</li>
+            <li>You have read and understood the information above</li>
+            <li>You agree to participate in this study voluntarily</li>
+        </ul>
         <a href="task.php?task=1" class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition">
-            Begin Task 1
+            I agree to participate and continue
         </a>
     </section>
 </main>

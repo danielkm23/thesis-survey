@@ -15,6 +15,141 @@ if (session_get('postsurvey_started_at') === null) {
     session_set('postsurvey_started_at', date('Y-m-d H:i:s'));
 }
 
+function required_int_post(string $key, int $min, int $max): int
+{
+    $value = filter_input(INPUT_POST, $key, FILTER_VALIDATE_INT, [
+        'options' => ['min_range' => $min, 'max_range' => $max],
+    ]);
+
+    if ($value === false || $value === null) {
+        http_response_code(400);
+        exit('Invalid value for ' . $key . '.');
+    }
+
+    return $value;
+}
+
+function required_numeric_post(string $key): string
+{
+    $raw = trim((string) ($_POST[$key] ?? ''));
+    if ($raw === '' || !is_numeric($raw)) {
+        http_response_code(400);
+        exit('Invalid value for ' . $key . '.');
+    }
+
+    return $raw;
+}
+
+function has_required_keys(array $data, array $keys): bool
+{
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $data)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+$allowedSteps = ['ai', 'crt', 'instruction_notice', 'demographics'];
+$step = (string) ($_GET['step'] ?? 'ai');
+if (!in_array($step, $allowedSteps, true)) {
+    $step = 'ai';
+}
+
+$storedAnswers = session_get('postsurvey_answers', []);
+if (!is_array($storedAnswers)) {
+    $storedAnswers = [];
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($step === 'ai') {
+        $storedAnswers['ai_lit_1'] = required_int_post('ai_lit_1', 1, 5);
+        $storedAnswers['ai_lit_2'] = required_int_post('ai_lit_2', 1, 5);
+        $storedAnswers['ai_lit_3'] = required_int_post('ai_lit_3', 1, 5);
+        $storedAnswers['ai_lit_4'] = required_int_post('ai_lit_4', 1, 5);
+        $storedAnswers['ai_lit_5'] = required_int_post('ai_lit_5', 1, 5);
+        $storedAnswers['ai_lit_6'] = required_int_post('ai_lit_6', 1, 5);
+        session_set('postsurvey_answers', $storedAnswers);
+        redirect('postsurvey.php?step=crt');
+    }
+
+    if ($step === 'crt') {
+        $storedAnswers['crt_1'] = required_numeric_post('crt_1');
+        $storedAnswers['crt_2'] = required_numeric_post('crt_2');
+        $storedAnswers['crt_3'] = required_numeric_post('crt_3');
+        session_set('postsurvey_answers', $storedAnswers);
+        redirect('postsurvey.php?step=instruction_notice');
+    }
+
+    if ($step === 'instruction_notice') {
+        $storedAnswers['instruction_notice'] = required_int_post('instruction_notice', 1, 5);
+        $storedAnswers['task_realism'] = required_int_post('task_realism', 1, 5);
+        session_set('postsurvey_answers', $storedAnswers);
+        redirect('postsurvey.php?step=demographics');
+    }
+}
+
+$requiredAiKeys = ['ai_lit_1', 'ai_lit_2', 'ai_lit_3', 'ai_lit_4', 'ai_lit_5', 'ai_lit_6'];
+$requiredCrtKeys = ['crt_1', 'crt_2', 'crt_3'];
+$requiredInstructionNoticeKeys = ['instruction_notice', 'task_realism'];
+$hasAiAnswers = has_required_keys($storedAnswers, $requiredAiKeys);
+$hasCrtAnswers = has_required_keys($storedAnswers, $requiredCrtKeys);
+$hasInstructionNoticeAnswer = has_required_keys($storedAnswers, $requiredInstructionNoticeKeys);
+
+if ($step === 'crt' && !$hasAiAnswers) {
+    redirect('postsurvey.php?step=ai');
+}
+
+if (($step === 'instruction_notice' || $step === 'demographics') && !$hasAiAnswers) {
+    redirect('postsurvey.php?step=ai');
+}
+
+if (($step === 'instruction_notice' || $step === 'demographics') && !$hasCrtAnswers) {
+    redirect('postsurvey.php?step=crt');
+}
+
+if ($step === 'demographics' && !$hasInstructionNoticeAnswer) {
+    redirect('postsurvey.php?step=instruction_notice');
+}
+
+$stepNumbers = [
+    'ai' => 1,
+    'crt' => 2,
+    'instruction_notice' => 3,
+    'demographics' => 4,
+];
+$currentStepNumber = $stepNumbers[$step];
+$progressPercent = (int) round(($currentStepNumber / 4) * 100);
+
+$aiLitItems = [
+    1 => [
+        'question' => 'AI-generated responses can sound convincing even when they are inaccurate.',
+    ],
+    2 => [
+        'question' => 'When information from an AI system is important, it is worth checking its accuracy.',
+    ],
+    3 => [
+        'question' => 'AI systems may produce information without relying on verified or reliable sources.',
+    ],
+    4 => [
+        'question' => 'AI-generated responses can reflect biases present in the data used to train the system.',
+    ],
+    5 => [
+        'question' => 'Even when an AI response appears clear, it may still be incomplete or uncertain.',
+    ],
+    6 => [
+        'question' => 'I usually accept AI-generated responses without questioning them.',
+    ],
+];
+$likertLabels = [
+    1 => 'Strongly disagree',
+    2 => 'Disagree',
+    3 => 'Neither agree nor disagree',
+    4 => 'Agree',
+    5 => 'Strongly agree',
+];
+
 $pageTitle = 'Post-Survey';
 require __DIR__ . '/../views/header.php';
 ?>
@@ -22,11 +157,11 @@ require __DIR__ . '/../views/header.php';
 <main class="max-w-4xl mx-auto px-4 py-8">
     <section class="bg-white shadow rounded-xl p-4 mb-4">
         <div class="flex items-center justify-between mb-2">
-            <p class="text-sm text-slate-500">Step 5 of 5</p>
             <p class="text-sm text-slate-500">Post-Survey</p>
+            <p class="text-sm text-slate-500">Part <?= e((string) $currentStepNumber) ?> of 4</p>
         </div>
         <div class="w-full h-2 bg-slate-200 rounded">
-            <div class="h-2 bg-blue-600 rounded" style="width: 100%"></div>
+            <div class="h-2 bg-blue-600 rounded" style="width: <?= e((string) $progressPercent) ?>%"></div>
         </div>
     </section>
 
@@ -35,203 +170,317 @@ require __DIR__ . '/../views/header.php';
         <p class="text-slate-600">Please complete this short survey before finishing the study.</p>
     </section>
 
-    <form id="postsurvey-form" method="post" action="save_postsurvey.php" class="space-y-6">
-        <section class="bg-white shadow rounded-xl p-6">
-            <h2 class="text-lg font-semibold text-slate-800 mb-4">A. Critical AI Literacy</h2>
-            <p class="text-sm text-slate-600 mb-4">
-                Scale: 1 = Strongly disagree, 2 = Disagree, 3 = Somewhat disagree, 4 = Neutral,
-                5 = Somewhat agree, 6 = Agree, 7 = Strongly agree
-            </p>
+    <?php if ($step === 'ai'): ?>
+        <form method="post" action="postsurvey.php?step=ai" class="space-y-6">
+            <section class="bg-white shadow rounded-xl p-6">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Questions about evaluating AI-generated information</h2>
+                <p class="text-sm text-slate-600 mb-4">
+                    Please indicate how much you agree or disagree with the following statements about evaluating information generated by AI systems.
+                </p>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full border border-slate-200 rounded-lg overflow-hidden">
+                        <thead class="bg-slate-50">
+                            <tr>
+                                <th class="text-left text-sm font-semibold text-slate-700 px-3 py-2 border-b border-slate-200 w-1/2">
+                                    Statement
+                                </th>
+                                <?php foreach ($likertLabels as $value => $label): ?>
+                                    <th class="text-center text-xs font-semibold text-slate-700 px-2 py-2 border-b border-slate-200 min-w-[120px]">
+                                        <?= e($value . ' — ' . $label) ?>
+                                    </th>
+                                <?php endforeach; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($aiLitItems as $index => $item): ?>
+                                <tr class="border-b border-slate-200 last:border-b-0">
+                                    <td class="align-top text-slate-800 text-sm px-3 py-3">
+                                        <?= e($item['question']) ?>
+                                    </td>
+                                    <?php foreach ($likertLabels as $optionValue => $label): ?>
+                                        <td class="text-center px-2 py-3">
+                                            <input
+                                                type="radio"
+                                                name="ai_lit_<?= $index ?>"
+                                                value="<?= $optionValue ?>"
+                                                required
+                                                class="h-4 w-4"
+                                                aria-label="<?= e('Item ' . $index . ', ' . $optionValue . ' — ' . $label) ?>"
+                                                <?= (string) $optionValue === (string) ($storedAnswers['ai_lit_' . $index] ?? '') ? 'checked' : '' ?>
+                                            >
+                                        </td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
 
-            <?php
-            $aiLitItems = [
-                1 => 'I understand that AI-generated responses can sound confident even when they are incorrect.',
-                2 => 'I know that AI systems may omit important contextual information.',
-                3 => 'I feel confident evaluating whether AI-generated information is reliable.',
-                4 => 'I understand that AI systems can reflect biases in their training data.',
-                5 => 'I know when it is necessary to verify AI-generated information.',
-            ];
-            ?>
+            <section class="bg-white shadow rounded-xl p-6">
+                <button
+                    type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition"
+                >
+                    Continue
+                </button>
+            </section>
+        </form>
+    <?php elseif ($step === 'crt'): ?>
+        <form method="post" action="postsurvey.php?step=crt" class="space-y-6">
+            <section class="bg-white shadow rounded-xl p-6">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Short reasoning questions</h2>
+                <p class="text-sm text-slate-600 mb-4">
+                    Please answer the following short reasoning questions.<br>
+                    There are no time limits.<br>
+                    Select the answer you believe is correct.
+                </p>
 
-            <div class="space-y-5">
-                <?php foreach ($aiLitItems as $index => $item): ?>
+                <div class="space-y-5">
+                    <div>
+                        <label class="block text-slate-800 mb-2">
+                            1. A bat and a ball cost EUR 1.10 in total. The bat costs EUR 1 more than the ball.
+                            How much does the ball cost?
+                        </label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            name="crt_1"
+                            required
+                            value="<?= e((string) ($storedAnswers['crt_1'] ?? '')) ?>"
+                            class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                    </div>
+
+                    <div>
+                        <label class="block text-slate-800 mb-2">
+                            2. If it takes 5 machines 5 minutes to make 5 widgets, how long would it take
+                            100 machines to make 100 widgets?
+                        </label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            name="crt_2"
+                            required
+                            value="<?= e((string) ($storedAnswers['crt_2'] ?? '')) ?>"
+                            class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                    </div>
+
+                    <div>
+                        <label class="block text-slate-800 mb-2">
+                            3. In a lake, there is a patch of lily pads. Every day, the patch doubles in size.
+                            If it takes 48 days to cover the whole lake, how long would it take to cover half the lake?
+                        </label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            name="crt_3"
+                            required
+                            value="<?= e((string) ($storedAnswers['crt_3'] ?? '')) ?>"
+                            class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-white shadow rounded-xl p-6 flex items-center gap-3">
+                <a href="postsurvey.php?step=ai" class="inline-block bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium px-5 py-3 rounded-lg transition">
+                    Back
+                </a>
+                <button
+                    type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition"
+                >
+                    Continue
+                </button>
+            </section>
+        </form>
+    <?php elseif ($step === 'instruction_notice'): ?>
+        <form method="post" action="postsurvey.php?step=instruction_notice" class="space-y-6">
+            <section class="bg-white shadow rounded-xl p-6">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Task experience</h2>
+                <p class="text-slate-800 mb-4">
+                    I noticed additional instructions or prompts encouraging me to review information during the tasks.
+                </p>
+                <p class="text-sm text-slate-600 mb-3">Response scale:</p>
+                <div class="space-y-2 text-slate-700">
+                    <?php foreach ($likertLabels as $optionValue => $label): ?>
+                        <label class="flex items-center gap-2">
+                            <input
+                                type="radio"
+                                name="instruction_notice"
+                                value="<?= $optionValue ?>"
+                                required
+                                class="h-4 w-4"
+                                <?= (string) $optionValue === (string) ($storedAnswers['instruction_notice'] ?? '') ? 'checked' : '' ?>
+                            >
+                            <span><?= e($optionValue . ' — ' . $label) ?></span>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+
+                <hr class="my-6 border-slate-200">
+
+                <h3 class="text-base font-semibold text-slate-800 mb-2">Task Realism</h3>
+                <p class="text-slate-800 mb-3">
+                    The tasks felt realistic and similar to real workplace situations.
+                </p>
+                <div class="space-y-2 text-slate-700">
+                    <?php foreach ($likertLabels as $optionValue => $label): ?>
+                        <label class="flex items-center gap-2">
+                            <input
+                                type="radio"
+                                name="task_realism"
+                                value="<?= $optionValue ?>"
+                                required
+                                class="h-4 w-4"
+                                <?= (string) $optionValue === (string) ($storedAnswers['task_realism'] ?? '') ? 'checked' : '' ?>
+                            >
+                            <span><?= e($optionValue . ' — ' . $label) ?></span>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+
+            <section class="bg-white shadow rounded-xl p-6 flex items-center gap-3">
+                <a href="postsurvey.php?step=crt" class="inline-block bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium px-5 py-3 rounded-lg transition">
+                    Back
+                </a>
+                <button
+                    type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition"
+                >
+                    Continue
+                </button>
+            </section>
+        </form>
+    <?php else: ?>
+        <form id="postsurvey-demographics-form" method="post" action="save_postsurvey.php" class="space-y-6">
+            <section class="bg-white shadow rounded-xl p-6">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Demographics</h2>
+
+                <div class="space-y-5">
                     <fieldset>
-                        <legend class="text-slate-800 mb-2"><?= e($item) ?></legend>
-                        <div class="flex flex-wrap gap-4 text-slate-700">
-                            <?php for ($i = 1; $i <= 7; $i++): ?>
-                                <label class="flex items-center gap-2">
-                                    <input type="radio" name="ai_lit_<?= $index ?>" value="<?= $i ?>" required class="h-4 w-4">
-                                    <span><?= $i ?></span>
-                                </label>
-                            <?php endfor; ?>
+                        <legend class="text-slate-800 mb-2">How often do you use AI tools (e.g., ChatGPT, Copilot, Gemini)?</legend>
+                        <div class="space-y-2 text-slate-700">
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="ai_experience" value="never" required class="h-4 w-4">
+                                <span>Never</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="ai_experience" value="less_than_monthly" required class="h-4 w-4">
+                                <span>Less than once per month</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="ai_experience" value="few_times_per_month" required class="h-4 w-4">
+                                <span>A few times per month</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="ai_experience" value="few_times_per_week" required class="h-4 w-4">
+                                <span>A few times per week</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="ai_experience" value="daily" required class="h-4 w-4">
+                                <span>Daily</span>
+                            </label>
                         </div>
                     </fieldset>
-                <?php endforeach; ?>
-            </div>
-        </section>
 
-        <section class="bg-white shadow rounded-xl p-6">
-            <h2 class="text-lg font-semibold text-slate-800 mb-4">B. Cognitive Reflection Test (CRT)</h2>
-
-            <div class="space-y-5">
-                <div>
-                    <label class="block text-slate-800 mb-2">
-                        1. A bat and a ball cost EUR 1.10 in total. The bat costs EUR 1 more than the ball.
-                        How much does the ball cost?
-                    </label>
-                    <input
-                        type="number"
-                        step="0.01"
-                        name="crt_1"
-                        required
-                        class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
-                    >
-                </div>
-
-                <div>
-                    <label class="block text-slate-800 mb-2">
-                        2. If it takes 5 machines 5 minutes to make 5 widgets, how long would it take
-                        100 machines to make 100 widgets?
-                    </label>
-                    <input
-                        type="number"
-                        step="0.01"
-                        name="crt_2"
-                        required
-                        class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
-                    >
-                </div>
-
-                <div>
-                    <label class="block text-slate-800 mb-2">
-                        3. In a lake, there is a patch of lily pads. Every day, the patch doubles in size.
-                        If it takes 48 days to cover the whole lake, how long would it take to cover half the lake?
-                    </label>
-                    <input
-                        type="number"
-                        step="0.01"
-                        name="crt_3"
-                        required
-                        class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
-                    >
-                </div>
-            </div>
-        </section>
-
-        <section class="bg-white shadow rounded-xl p-6">
-            <h2 class="text-lg font-semibold text-slate-800 mb-4">C. Background Questions</h2>
-
-            <div class="space-y-5">
-                <fieldset>
-                    <legend class="text-slate-800 mb-2">AI experience</legend>
-                    <div class="space-y-2 text-slate-700">
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="ai_experience" value="never" required class="h-4 w-4">
-                            <span>Never used AI tools</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="ai_experience" value="occasionally" required class="h-4 w-4">
-                            <span>Occasionally use AI tools</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="ai_experience" value="regularly" required class="h-4 w-4">
-                            <span>Regularly use AI tools</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="ai_experience" value="daily" required class="h-4 w-4">
-                            <span>Use AI tools daily</span>
-                        </label>
+                    <div>
+                        <label for="age" class="block text-slate-800 mb-2">Age</label>
+                        <input
+                            id="age"
+                            type="number"
+                            min="16"
+                            max="100"
+                            name="age"
+                            required
+                            class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                        <p id="age-error" class="mt-2 text-sm text-red-600 hidden">
+                            Age must be between 16 and 100.
+                        </p>
                     </div>
-                </fieldset>
 
-                <div>
-                    <label for="age" class="block text-slate-800 mb-2">Age</label>
-                    <input
-                        id="age"
-                        type="number"
-                        min="16"
-                        max="100"
-                        name="age"
-                        required
-                        class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
-                    >
-                    <p id="age-error" class="mt-2 text-sm text-red-600 hidden">
-                        Age must be between 16 and 100.
-                    </p>
+                    <fieldset>
+                        <legend class="text-slate-800 mb-2">Gender</legend>
+                        <div class="space-y-2 text-slate-700">
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="gender" value="male" required class="h-4 w-4">
+                                <span>Male</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="gender" value="female" required class="h-4 w-4">
+                                <span>Female</span>
+                            </label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend class="text-slate-800 mb-2">What is the highest level of education you have completed?</legend>
+                        <div class="space-y-2 text-slate-700">
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="education" value="secondary_education" required class="h-4 w-4">
+                                <span>Secondary education (e.g., high school or equivalent)</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="education" value="currently_enrolled_bachelors" required class="h-4 w-4">
+                                <span>Currently enrolled in a Bachelor's program</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="education" value="bachelors" required class="h-4 w-4">
+                                <span>Bachelor's degree</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="education" value="masters" required class="h-4 w-4">
+                                <span>Master's degree</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="education" value="doctoral_degree" required class="h-4 w-4">
+                                <span>Doctoral degree (PhD or equivalent)</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" name="education" value="prefer_not_to_say" required class="h-4 w-4">
+                                <span>Prefer not to say</span>
+                            </label>
+                        </div>
+                    </fieldset>
                 </div>
+            </section>
 
-                <fieldset>
-                    <legend class="text-slate-800 mb-2">Gender</legend>
-                    <div class="space-y-2 text-slate-700">
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="gender" value="male" required class="h-4 w-4">
-                            <span>Male</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="gender" value="female" required class="h-4 w-4">
-                            <span>Female</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="gender" value="non_binary" required class="h-4 w-4">
-                            <span>Non-binary</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="gender" value="prefer_not_to_say" required class="h-4 w-4">
-                            <span>Prefer not to say</span>
-                        </label>
-                    </div>
-                </fieldset>
-
-                <fieldset>
-                    <legend class="text-slate-800 mb-2">Education</legend>
-                    <div class="space-y-2 text-slate-700">
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="education" value="high_school" required class="h-4 w-4">
-                            <span>High school</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="education" value="bachelors" required class="h-4 w-4">
-                            <span>Bachelor's degree</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="education" value="masters" required class="h-4 w-4">
-                            <span>Master's degree</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="education" value="phd" required class="h-4 w-4">
-                            <span>PhD</span>
-                        </label>
-                        <label class="flex items-center gap-2">
-                            <input type="radio" name="education" value="other" required class="h-4 w-4">
-                            <span>Other</span>
-                        </label>
-                    </div>
-                </fieldset>
-            </div>
-        </section>
-
-        <section class="bg-white shadow rounded-xl p-6">
-            <p id="postsurvey-error" class="mb-4 text-sm text-red-600 hidden">
-                Please complete all required fields before submitting.
-            </p>
-            <button
-                type="submit"
-                id="postsurvey-submit-button"
-                class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition"
-            >
-                Submit Post-Survey
-            </button>
-        </section>
-    </form>
+            <section class="bg-white shadow rounded-xl p-6">
+                <p id="postsurvey-error" class="mb-4 text-sm text-red-600 hidden">
+                    Please complete all required fields before submitting.
+                </p>
+                <div class="flex items-center gap-3">
+                    <a href="postsurvey.php?step=instruction_notice" class="inline-block bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium px-5 py-3 rounded-lg transition">
+                        Back
+                    </a>
+                    <button
+                        type="submit"
+                        id="postsurvey-submit-button"
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition"
+                    >
+                        Submit Post-Survey
+                    </button>
+                </div>
+            </section>
+        </form>
+    <?php endif; ?>
 </main>
 
 <script>
     (function () {
-        var form = document.getElementById('postsurvey-form');
+        var form = document.getElementById('postsurvey-demographics-form');
         var ageInput = document.getElementById('age');
         var ageError = document.getElementById('age-error');
         var submitButton = document.getElementById('postsurvey-submit-button');
         var postsurveyError = document.getElementById('postsurvey-error');
+
+        if (!form || !ageInput || !ageError || !postsurveyError) {
+            return;
+        }
 
         function validateAge() {
             var value = ageInput.value.trim();

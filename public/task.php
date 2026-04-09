@@ -102,7 +102,9 @@ $conditionName = (string) session_get('condition_name', '');
 $showPassiveNotice = $conditionName === 'passive';
 $isActiveCondition = $conditionName === 'active';
 $taskStep = $taskNumber !== false && $taskNumber !== null ? $taskNumber : 1;
-$progressPercent = (int) round(($taskStep / max(1, $totalTasks + 1)) * 100);
+$postsurveyParts = 4;
+$totalStudySteps = $totalTasks + $postsurveyParts;
+$progressPercent = (int) round(($taskStep / max(1, $totalStudySteps)) * 100);
 
 $pageTitle = 'Task ' . ($taskNumber ?: '');
 require __DIR__ . '/../views/header.php';
@@ -169,7 +171,7 @@ require __DIR__ . '/../views/header.php';
     <?php else: ?>
         <section class="bg-white shadow rounded-xl p-4 mb-4">
             <div class="flex items-center justify-between mb-2">
-                <p class="text-sm text-slate-500">Step <?= e((string) $taskStep) ?> of <?= e((string) ($totalTasks + 1)) ?></p>
+                <p class="text-sm text-slate-500">Step <?= e((string) $taskStep) ?> of <?= e((string) $totalStudySteps) ?></p>
                 <p class="text-sm text-slate-500">Task <?= e((string) $task['number']) ?> of <?= e((string) $totalTasks) ?></p>
             </div>
             <div class="w-full h-2 bg-slate-200 rounded">
@@ -274,6 +276,22 @@ require __DIR__ . '/../views/header.php';
                     </div>
                 <?php endif; ?>
 
+                <div class="mb-4">
+                    <label for="final_response" class="block text-base font-semibold text-slate-800 mb-2">
+                        Please write the response you would send in this situation.
+                    </label>
+                    <p class="text-sm text-slate-600 mb-2">You may use or modify the AI-generated response if you wish.</p>
+                    <textarea
+                        id="final_response"
+                        name="final_response"
+                        rows="5"
+                        class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Write your final response here..."
+                        required
+                    ></textarea>
+                    <p id="final-response-error" class="mt-2 text-sm text-red-600 hidden">Please enter a final response.</p>
+                </div>
+
                 <fieldset class="mb-4">
                     <legend class="text-base font-semibold text-slate-800 mb-3">
                         Please select the option that best reflects what you would actually do in this situation.
@@ -318,22 +336,6 @@ require __DIR__ . '/../views/header.php';
                     </div>
                     <p id="reliance-error" class="mt-2 text-sm text-red-600 hidden">Please select one reliance option.</p>
                 </fieldset>
-
-                <div class="mb-4">
-                    <label for="final_response" class="block text-base font-semibold text-slate-800 mb-2">
-                        Please write the response you would send in this situation.
-                    </label>
-                    <p class="text-sm text-slate-600 mb-2">You may use or modify the AI-generated response if you wish.</p>
-                    <textarea
-                        id="final_response"
-                        name="final_response"
-                        rows="5"
-                        class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Write your final response here..."
-                        required
-                    ></textarea>
-                    <p id="final-response-error" class="mt-2 text-sm text-red-600 hidden">Please enter a final response.</p>
-                </div>
 
                 <fieldset class="mb-4">
                     <legend class="text-base font-semibold text-slate-800 mb-3">

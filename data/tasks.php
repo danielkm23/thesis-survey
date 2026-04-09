@@ -5,7 +5,7 @@ declare(strict_types=1);
 return [
     2 => [
         'number' => 2,
-        'title' => 'Task 2: Client Meeting Recording',
+        'title' => 'Task 2',
         'ai_correct' => false,
         'scenario' => "Message from colleague:\nHi, quick question.\nWe have a client meeting next week and I was thinking of recording it so our new team members can use it for internal training later.\nIs that allowed under company policy, as long as the recording stays internal?\nCould you let me know what I should do?",
         'work_task' => "You work as a junior operations coordinator at a mid-sized international company. A colleague from another department has asked whether a client meeting can be recorded and shared internally for training purposes.\n\n- You are asked to send a short internal reply based on the company's policy.\n- You may consult the additional documents if needed before making your decision.",
@@ -283,7 +283,7 @@ This includes:
     ],
     1 => [
         'number' => 1,
-        'title' => 'Task 1: Expense Reimbursement Decision',
+        'title' => 'Task 1',
         'ai_correct' => true,
         'work_task' => "You work as a junior employee in the finance and administration department. Your role is to provide guidance based on company policy, but final decisions are made by a manager. A colleague has submitted an expense claim for a recent business trip and wants to know whether the expense can be reimbursed under company policy.\n\n- You are asked to send a short internal reply based on the company's expense reimbursement policy.\n- You may consult the additional documents if needed before making your decision.",
         'scenario' => "Message from colleague:\nHi, I just submitted an expense claim for dinner during my recent business trip.\n\nThe total amount was €68, and I did not request prior approval because the meeting ran late and there were limited dining options nearby.\n\nI kept the receipt and documented the purpose of the meeting in the expense system.\n\nCan this expense still be reimbursed under company policy?",
