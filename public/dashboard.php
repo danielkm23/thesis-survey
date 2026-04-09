@@ -16,7 +16,7 @@ $expectedPassword = env_or_default('DASHBOARD_PASSWORD', 'DASHBOARD');
 
 if (isset($_GET['logout'])) {
     unset($_SESSION[$dashboardSessionKey]);
-    redirect('/dashboard');
+    redirect('/dashboard/');
 }
 
 $authError = null;
@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $providedPassword = (string) ($_POST['dashboard_password'] ?? '');
     if (hash_equals($expectedPassword, $providedPassword)) {
         session_set($dashboardSessionKey, true);
-        redirect('/dashboard');
+        redirect('/dashboard/');
     }
     $authError = 'Invalid password.';
 }
@@ -40,7 +40,7 @@ if (session_get($dashboardSessionKey) !== true) {
             <?php if ($authError !== null): ?>
                 <p class="mb-3 text-sm text-red-600"><?= e($authError) ?></p>
             <?php endif; ?>
-            <form method="post" action="/dashboard" class="space-y-4">
+            <form method="post" action="/dashboard/" class="space-y-4">
                 <div>
                     <label for="dashboard_password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
                     <input
@@ -577,7 +577,7 @@ require __DIR__ . '/../views/header.php';
             <p class="text-slate-600 text-sm">Internal monitoring view for thesis supervision.</p>
         </div>
         <a
-            href="/dashboard?logout=1"
+            href="/dashboard/?logout=1"
             class="inline-block bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-2 rounded-lg transition"
         >
             Log out
@@ -587,20 +587,20 @@ require __DIR__ . '/../views/header.php';
     <section class="mb-6">
         <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1">
             <a
-                href="/dashboard?tab=overview"
+                href="/dashboard/?tab=overview"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'overview' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Overview
             </a>
             <a
-                href="/dashboard?tab=data"
+                href="/dashboard/?tab=data"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'data' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Full Data
             </a>
             <?php if ($currentTab === 'participant' && $participantDetailId !== false && $participantDetailId !== null): ?>
                 <a
-                    href="/dashboard?tab=participant&participant_id=<?= e((string) $participantDetailId) ?>"
+                    href="/dashboard/?tab=participant&participant_id=<?= e((string) $participantDetailId) ?>"
                     class="px-3 py-1.5 text-sm rounded-md transition accent-bg text-white"
                 >
                     Participant <?= e((string) $participantDetailId) ?>
@@ -687,7 +687,7 @@ require __DIR__ . '/../views/header.php';
         </section>
     <?php elseif ($currentTab === 'data'): ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4">
-            <form method="get" action="/dashboard" class="flex flex-wrap items-end gap-3">
+            <form method="get" action="/dashboard/" class="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="tab" value="data">
                 <div>
                     <label for="table" class="block text-sm font-medium text-slate-700 mb-1">Table</label>
@@ -727,7 +727,7 @@ require __DIR__ . '/../views/header.php';
                         <?php foreach ($dataColumns as $column): ?>
                             <?php
                             $nextDirection = ($sortColumn === $column && $sortDirection === 'asc') ? 'desc' : 'asc';
-                            $sortUrl = '/dashboard?tab=data&table=' . urlencode($selectedTable)
+                            $sortUrl = '/dashboard/?tab=data&table=' . urlencode($selectedTable)
                                 . '&page=1&sort=' . urlencode($column) . '&dir=' . urlencode($nextDirection);
                             ?>
                             <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap">
@@ -769,7 +769,7 @@ require __DIR__ . '/../views/header.php';
                                         if ($isParticipantLink):
                                         ?>
                                             <a
-                                                href="/dashboard?tab=participant&participant_id=<?= e($rawValue) ?>"
+                                                href="/dashboard/?tab=participant&participant_id=<?= e($rawValue) ?>"
                                                 class="accent-text hover:underline font-medium"
                                             >
                                                 <?= e($displayValue) ?>
@@ -790,7 +790,7 @@ require __DIR__ . '/../views/header.php';
             <?php
             $prevPage = max(1, $dataPage - 1);
             $nextPage = min($dataTotalPages, $dataPage + 1);
-            $baseDataUrl = '/dashboard?tab=data&table=' . urlencode($selectedTable)
+            $baseDataUrl = '/dashboard/?tab=data&table=' . urlencode($selectedTable)
                 . '&sort=' . urlencode($sortColumn) . '&dir=' . urlencode($sortDirection) . '&page=';
             ?>
             <a
@@ -826,7 +826,7 @@ require __DIR__ . '/../views/header.php';
                     <h2 class="text-lg font-semibold text-slate-800">Participant Details</h2>
                     <p class="text-sm text-slate-600">Detailed view across participant profile, tasks, document events, and post-survey.</p>
                 </div>
-                <a href="/dashboard?tab=data&table=participants" class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition">
+                <a href="/dashboard/?tab=data&table=participants" class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition">
                     Back to Full Data
                 </a>
             </div>
