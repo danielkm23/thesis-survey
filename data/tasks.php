@@ -15,19 +15,75 @@ return [
                 'key' => 'refund_policy',
                 'title' => 'Recording Policy',
                 'relevant' => true,
-                'content' => 'Duplicate charge refunds are available after transaction verification. Standard processing time is 3-5 business days. Agents must not promise same-day settlement unless payment operations has confirmed it.',
+                'content' => "Processing must be based on:
+- legitimate business purposes
+- contractual obligations
+- legal requirements
+- informed consent where required
+Employees must avoid collecting or storing personal data unnecessarily.
+4. Storage and Retention
+Personal data must be stored securely and retained only for as long as necessary to fulfill business or legal requirements.
+Employees must:
+- use approved storage systems
+- restrict access to authorized users
+- delete data when no longer required
+- avoid storing personal data on personal devices
+5. Access Control
+Access to personal data must be limited to individuals who require it to perform their job responsibilities.
+Employees must not share personal data with unauthorized parties.
+6. Reporting Incidents
+Employees must report suspected data breaches or unauthorized disclosures immediately to the Data Protection Officer.",
             ],
             [
                 'key' => 'support_sop',
                 'title' => 'Data Protection Guidelines',
                 'relevant' => false,
-                'content' => 'For billing disputes, support must collect order ID, billing date, and last 4 digits of payment method. If duplicate charge is likely, create a Billing Ops ticket and share expected timeline with the customer.',
+                'content' => "Processing must be based on:
+- legitimate business purposes
+- contractual obligations
+- legal requirements
+- informed consent where required
+Employees must avoid collecting or storing personal data unnecessarily.
+4. Storage and Retention
+Personal data must be stored securely and retained only for as long as necessary to fulfill business or legal requirements.
+Employees must:
+- use approved storage systems
+- restrict access to authorized users
+- delete data when no longer required
+- avoid storing personal data on personal devices
+5. Access Control
+Access to personal data must be limited to individuals who require it to perform their job responsibilities.
+Employees must not share personal data with unauthorized parties.
+6. Reporting Incidents
+Employees must report suspected data breaches or unauthorized disclosures immediately to the Data Protection Officer.",
             ],
             [
                 'key' => 'tone_guidelines',
                 'title' => 'Team Communication Handbook',
                 'relevant' => false,
-                'content' => 'Use clear and empathetic language. Acknowledge frustration, avoid absolute guarantees, and provide concrete next steps. Keep messages concise and professional.',
+                'content' => "
+Employees should communicate clearly and professionally when working with colleagues and stakeholders.
+Key communication principles include:
+- clarity
+- respect
+- responsiveness
+- accountability
+Employees should ensure that information shared internally is accurate and relevant.
+4. Collaboration Tools
+Employees may use approved communication tools to collaborate with colleagues.
+These tools may include:
+- email
+- messaging platforms
+- video conferencing systems
+- shared document repositories
+Employees should follow organizational guidelines when using communication tools.
+5. Professional Conduct
+Employees must maintain professional behavior in all communications.
+This includes:
+- respectful language
+- timely responses
+- accurate information
+- appropriate documentation",
             ],
         ],
     ],
