@@ -67,10 +67,49 @@ require __DIR__ . '/../views/header.php';
             <li>You have read and understood the information above</li>
             <li>You agree to participate in this study voluntarily</li>
         </ul>
-        <a href="task.php?task=1" class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition">
-            I agree to participate and continue
-        </a>
+        <form method="get" action="task.php">
+            <input type="hidden" name="task" value="1">
+            <label class="flex items-center gap-2 text-slate-700 mb-4">
+                <input
+                    id="consent-confirmation"
+                    type="checkbox"
+                    required
+                    class="h-4 w-4"
+                >
+                <span>I consent to participate in this study.</span>
+            </label>
+            <button
+                id="consent-continue-button"
+                type="submit"
+                class="inline-block accent-bg accent-bg-hover text-white font-medium px-5 py-3 rounded-lg transition opacity-60 cursor-not-allowed"
+                disabled
+            >
+                I agree to participate and continue
+            </button>
+        </form>
     </section>
 </main>
+
+<script>
+    (function () {
+        var consentCheckbox = document.getElementById('consent-confirmation');
+        var continueButton = document.getElementById('consent-continue-button');
+        if (!consentCheckbox || !continueButton) {
+            return;
+        }
+
+        function syncConsentState() {
+            continueButton.disabled = !consentCheckbox.checked;
+            if (consentCheckbox.checked) {
+                continueButton.classList.remove('opacity-60', 'cursor-not-allowed');
+            } else {
+                continueButton.classList.add('opacity-60', 'cursor-not-allowed');
+            }
+        }
+
+        consentCheckbox.addEventListener('change', syncConsentState);
+        syncConsentState();
+    })();
+</script>
 
 <?php require __DIR__ . '/../views/footer.php'; ?>

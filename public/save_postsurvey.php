@@ -63,6 +63,18 @@ function required_numeric_response(string $key): string
     return $raw;
 }
 
+function required_integer_response(string $key): string
+{
+    $sessionAnswers = session_get('postsurvey_answers', []);
+    $raw = trim((string) ($_POST[$key] ?? (is_array($sessionAnswers) ? ($sessionAnswers[$key] ?? '') : '')));
+    if ($raw === '' || filter_var($raw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]) === false) {
+        http_response_code(400);
+        exit('Invalid value for ' . $key . '. Please provide a whole number.');
+    }
+
+    return $raw;
+}
+
 $aiLit1 = required_mcq_value('ai_lit_1');
 $aiLit2 = required_mcq_value('ai_lit_2');
 $aiLit3 = required_mcq_value('ai_lit_3');
@@ -73,8 +85,8 @@ $instructionNotice = required_mcq_value('instruction_notice');
 $taskRealism = required_mcq_value('task_realism');
 
 $crt1 = required_numeric_response('crt_1');
-$crt2 = required_numeric_response('crt_2');
-$crt3 = required_numeric_response('crt_3');
+$crt2 = required_integer_response('crt_2');
+$crt3 = required_integer_response('crt_3');
 
 $allowedAiExperience = ['never', 'less_than_monthly', 'few_times_per_month', 'few_times_per_week', 'daily'];
 $allowedGender = ['male', 'female'];

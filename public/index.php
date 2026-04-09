@@ -63,7 +63,7 @@ require __DIR__ . '/../views/header.php';
     <section class="bg-white shadow rounded-xl p-8">
         <h1 class="text-2xl font-bold text-slate-800 mb-6">Welcome to the thesis study</h1>
         <form method="post" action="">
-            <button type="submit" class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition">
+            <button type="submit" class="inline-block accent-bg accent-bg-hover text-white font-medium px-5 py-3 rounded-lg transition">
                 Start Study
             </button>
         </form>

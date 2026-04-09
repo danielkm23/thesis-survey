@@ -3,7 +3,7 @@ declare(strict_types=1);
 ?>
     <footer class="border-t border-slate-200 mt-12 bg-white">
         <div class="max-w-5xl mx-auto px-4 py-6 text-sm text-slate-500">
-            Thesis experiment prototype
+            MSc Digital Business &amp; Innovation Research Study
         </div>
     </footer>
 

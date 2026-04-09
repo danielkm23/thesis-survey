@@ -175,7 +175,7 @@ require __DIR__ . '/../views/header.php';
                 <p class="text-sm text-slate-500">Task <?= e((string) $task['number']) ?> of <?= e((string) $totalTasks) ?></p>
             </div>
             <div class="w-full h-2 bg-slate-200 rounded">
-                <div class="h-2 bg-blue-600 rounded" style="width: <?= e((string) $progressPercent) ?>%"></div>
+                <div class="h-2 accent-bg rounded" style="width: <?= e((string) $progressPercent) ?>%"></div>
             </div>
         </section>
 
@@ -247,7 +247,7 @@ require __DIR__ . '/../views/header.php';
                 <input type="hidden" name="task_number" value="<?= e((string) $task['number']) ?>">
 
                 <?php if ($isActiveCondition): ?>
-                    <div class="mb-4">
+                    <div id="verification-intention-group" class="mb-4">
                         <h3 class="text-base font-semibold text-slate-800 mb-2">Before submitting your response</h3>
                         <p class="text-sm text-slate-600 mb-3">
                             Indicate what you would want to verify before using the AI-generated response.
@@ -292,8 +292,8 @@ require __DIR__ . '/../views/header.php';
                     <p id="final-response-error" class="mt-2 text-sm text-red-600 hidden">Please enter a final response.</p>
                 </div>
 
-                <fieldset class="mb-4">
-                    <legend class="text-base font-semibold text-slate-800 mb-3">
+                <fieldset id="reliance-fieldset" class="mb-4">
+                    <legend class="text-base font-semibold text-slate-800 mb-3 break-words">
                         Please select the option that best reflects what you would actually do in this situation.
                     </legend>
                     <div class="space-y-1.5 text-slate-700">
@@ -337,8 +337,8 @@ require __DIR__ . '/../views/header.php';
                     <p id="reliance-error" class="mt-2 text-sm text-red-600 hidden">Please select one reliance option.</p>
                 </fieldset>
 
-                <fieldset class="mb-4">
-                    <legend class="text-base font-semibold text-slate-800 mb-3">
+                <fieldset id="confidence-fieldset" class="mb-4">
+                    <legend class="text-base font-semibold text-slate-800 mb-3 break-words">
                         How confident are you in your decision?
                     </legend>
                     <div class="space-y-1.5 text-slate-700">
@@ -369,10 +369,11 @@ require __DIR__ . '/../views/header.php';
                 <button
                     type="submit"
                     id="task-submit-button"
-                    class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-lg transition"
+                    class="w-full sm:w-auto accent-bg accent-bg-hover text-white font-medium px-5 py-3 rounded-lg transition"
                 >
-                    Submit Task
+                    Next →
                 </button>
+                <p id="task-autosave-status" class="mt-3 text-xs text-slate-500" aria-live="polite">All changes saved</p>
             </form>
         </section>
 
@@ -430,6 +431,12 @@ require __DIR__ . '/../views/header.php';
                 var confidenceError = document.getElementById('confidence-error');
                 var verificationIntentionError = document.getElementById('verification-intention-error');
                 var verificationOptions = form ? form.querySelectorAll('input[name="verification_intention"]') : [];
+                var autosaveKey = 'thesis_task_draft_' + String(taskNumber);
+                var autosaveStatus = document.getElementById('task-autosave-status');
+                var autosaveStatusTimer = null;
+                var relianceFieldset = document.getElementById('reliance-fieldset');
+                var confidenceFieldset = document.getElementById('confidence-fieldset');
+                var verificationGroup = document.getElementById('verification-intention-group');
 
                 function postDocumentEvent(payload) {
                     fetch('log_event.php', {
@@ -518,6 +525,112 @@ require __DIR__ . '/../views/header.php';
                 });
 
                 if (form) {
+                    function setAutosaveStatus(message) {
+                        if (!autosaveStatus) {
+                            return;
+                        }
+                        autosaveStatus.textContent = message;
+                    }
+
+                    function markGroupError(targetEl, hasError) {
+                        if (!targetEl) {
+                            return;
+                        }
+                        if (hasError) {
+                            targetEl.classList.add('border', 'border-red-300', 'rounded-lg', 'p-3');
+                        } else {
+                            targetEl.classList.remove('border', 'border-red-300', 'rounded-lg', 'p-3');
+                        }
+                    }
+
+                    function saveDraft() {
+                        var draft = {};
+                        var finalResponseField = form.querySelector('textarea[name="final_response"]');
+                        if (finalResponseField) {
+                            draft.final_response = finalResponseField.value;
+                        }
+
+                        var relianceChoice = form.querySelector('input[name="reliance_choice"]:checked');
+                        if (relianceChoice) {
+                            draft.reliance_choice = relianceChoice.value;
+                        }
+
+                        var confidenceChoice = form.querySelector('input[name="confidence"]:checked');
+                        if (confidenceChoice) {
+                            draft.confidence = confidenceChoice.value;
+                        }
+
+                        var verificationChoice = form.querySelector('input[name="verification_intention"]:checked');
+                        if (verificationChoice) {
+                            draft.verification_intention = verificationChoice.value;
+                        }
+
+                        try {
+                            localStorage.setItem(autosaveKey, JSON.stringify(draft));
+                            setAutosaveStatus('Draft saved');
+                            if (autosaveStatusTimer) {
+                                clearTimeout(autosaveStatusTimer);
+                            }
+                            autosaveStatusTimer = setTimeout(function () {
+                                setAutosaveStatus('All changes saved');
+                            }, 800);
+                        } catch (error) {
+                            // Ignore autosave failures silently.
+                        }
+                    }
+
+                    function restoreDraft() {
+                        var raw = null;
+                        try {
+                            raw = localStorage.getItem(autosaveKey);
+                        } catch (error) {
+                            raw = null;
+                        }
+
+                        if (!raw) {
+                            return;
+                        }
+
+                        var draft = null;
+                        try {
+                            draft = JSON.parse(raw);
+                        } catch (error) {
+                            draft = null;
+                        }
+
+                        if (!draft || typeof draft !== 'object') {
+                            return;
+                        }
+
+                        var finalResponseField = form.querySelector('textarea[name="final_response"]');
+                        if (finalResponseField && typeof draft.final_response === 'string') {
+                            finalResponseField.value = draft.final_response;
+                        }
+
+                        if (typeof draft.reliance_choice === 'string') {
+                            var relianceRadio = form.querySelector('input[name="reliance_choice"][value="' + draft.reliance_choice + '"]');
+                            if (relianceRadio) {
+                                relianceRadio.checked = true;
+                            }
+                        }
+
+                        if (typeof draft.confidence === 'string') {
+                            var confidenceRadio = form.querySelector('input[name="confidence"][value="' + draft.confidence + '"]');
+                            if (confidenceRadio) {
+                                confidenceRadio.checked = true;
+                            }
+                        }
+
+                        if (typeof draft.verification_intention === 'string') {
+                            var verificationRadio = form.querySelector('input[name="verification_intention"][value="' + draft.verification_intention + '"]');
+                            if (verificationRadio) {
+                                verificationRadio.checked = true;
+                            }
+                        }
+
+                        setAutosaveStatus('All changes saved');
+                    }
+
                     function showOrHideError(el, shouldShow) {
                         if (!el) {
                             return;
@@ -534,6 +647,7 @@ require __DIR__ . '/../views/header.php';
                         var hasConfidence = form.querySelector('input[name="confidence"]:checked') !== null;
                         var hasFinalResponse = finalResponse && finalResponse.value.trim() !== '';
                         var hasVerificationIntention = true;
+                        var firstInvalidElement = null;
 
                         if (isActiveCondition) {
                             hasVerificationIntention = form.querySelector('input[name="verification_intention"]:checked') !== null;
@@ -543,8 +657,32 @@ require __DIR__ . '/../views/header.php';
                         showOrHideError(confidenceError, !hasConfidence);
                         showOrHideError(finalResponseError, !hasFinalResponse);
                         showOrHideError(verificationIntentionError, isActiveCondition && !hasVerificationIntention);
+                        markGroupError(relianceFieldset, !hasReliance);
+                        markGroupError(confidenceFieldset, !hasConfidence);
+                        markGroupError(verificationGroup, isActiveCondition && !hasVerificationIntention);
 
-                        return hasReliance && hasConfidence && hasFinalResponse && hasVerificationIntention;
+                        if (finalResponse) {
+                            if (hasFinalResponse) {
+                                finalResponse.classList.remove('border-red-500');
+                            } else {
+                                finalResponse.classList.add('border-red-500');
+                            }
+                        }
+
+                        if (isActiveCondition && !hasVerificationIntention) {
+                            firstInvalidElement = form.querySelector('input[name="verification_intention"]');
+                        } else if (!hasFinalResponse) {
+                            firstInvalidElement = finalResponse;
+                        } else if (!hasReliance) {
+                            firstInvalidElement = form.querySelector('input[name="reliance_choice"]');
+                        } else if (!hasConfidence) {
+                            firstInvalidElement = form.querySelector('input[name="confidence"]');
+                        }
+
+                        return {
+                            isValid: hasReliance && hasConfidence && hasFinalResponse && hasVerificationIntention,
+                            firstInvalidElement: firstInvalidElement
+                        };
                     }
 
                     function updateSubmitEnabledState() {
@@ -565,15 +703,37 @@ require __DIR__ . '/../views/header.php';
                         }
                     }
 
+                    restoreDraft();
                     updateSubmitEnabledState();
                     verificationOptions.forEach(function (option) {
                         option.addEventListener('change', updateSubmitEnabledState);
                     });
 
+                    var autosaveInputs = form.querySelectorAll('input[type="radio"], textarea[name="final_response"]');
+                    autosaveInputs.forEach(function (input) {
+                        input.addEventListener('change', saveDraft);
+                        if (input.tagName === 'TEXTAREA') {
+                            input.addEventListener('input', saveDraft);
+                        }
+                    });
+
                     form.addEventListener('submit', function (event) {
-                        if (!validateTaskForm()) {
+                        var validation = validateTaskForm();
+                        if (!validation.isValid) {
                             event.preventDefault();
+                            if (validation.firstInvalidElement && typeof validation.firstInvalidElement.scrollIntoView === 'function') {
+                                validation.firstInvalidElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                if (typeof validation.firstInvalidElement.focus === 'function') {
+                                    validation.firstInvalidElement.focus();
+                                }
+                            }
                             return;
+                        }
+
+                        try {
+                            localStorage.removeItem(autosaveKey);
+                        } catch (error) {
+                            // Ignore cleanup failures silently.
                         }
 
                         if (submitButton) {
