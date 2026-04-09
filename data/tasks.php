@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 // Task content scaffold. Replace values with your real study content later.
 return [
-    1 => [
-        'number' => 1,
-        'title' => 'Task 1: Client Meeting Recording',
+    2 => [
+        'number' => 2,
+        'title' => 'Task 2: Client Meeting Recording',
         'ai_correct' => false,
         'scenario' => "Message from colleague:\nHi, quick question.\nWe have a client meeting next week and I was thinking of recording it so our new team members can use it for internal training later.\nIs that allowed under company policy, as long as the recording stays internal?\nCould you let me know what I should do?",
         'work_task' => "You work as a junior operations coordinator at a mid-sized international company. A colleague from another department has asked whether a client meeting can be recorded and shared internally for training purposes.\n\n- You are asked to send a short internal reply based on the company's policy.\n- You may consult the additional documents if needed before making your decision.",
@@ -281,30 +281,164 @@ This includes:
             ],
         ],
     ],
-    2 => [
-        'number' => 2,
-        'title' => 'Task 2: Clarify a Shipping Delay',
+    1 => [
+        'number' => 1,
+        'title' => 'Task 1: Expense Reimbursement Decision',
         'ai_correct' => true,
-        'scenario' => 'A customer asks why their package is delayed and requests a clear estimate for delivery.',
-        'ai_output' => 'Thanks for reaching out. Your package is currently delayed at a regional hub due to weather conditions. The latest estimated delivery is within 2 business days. We will notify you if this changes.',
+        'work_task' => "You work as a junior employee in the finance and administration department. Your role is to provide guidance based on company policy, but final decisions are made by a manager. A colleague has submitted an expense claim for a recent business trip and wants to know whether the expense can be reimbursed under company policy.\n\n- You are asked to send a short internal reply based on the company's expense reimbursement policy.\n- You may consult the additional documents if needed before making your decision.",
+        'scenario' => "Message from colleague:\nHi, I just submitted an expense claim for dinner during my recent business trip.\n\nThe total amount was €68, and I did not request prior approval because the meeting ran late and there were limited dining options nearby.\n\nI kept the receipt and documented the purpose of the meeting in the expense system.\n\nCan this expense still be reimbursed under company policy?",
+        'ai_prompt' => "Write a short internal response to this message based on the company policy documents.\nEnsure that your response reflects the relevant rules and requirements.",
+        'ai_output' => "Hi,\n\nThank you for submitting the expense claim and for documenting the purpose of the dinner.\n\nBased on company policy, this type of expense can generally be reimbursed when it was incurred during a legitimate business trip and the amount is reasonable for the situation. While prior approval is normally recommended for higher expenses, reimbursement is typically still allowed when the expense was necessary and properly documented.\n\nYou can proceed with submitting the claim, and it should be eligible for reimbursement under these circumstances.\n\nPlease let me know if you need any further assistance.\n\nBest regards,",
         'documents' => [
             [
-                'key' => 'shipping_policy',
-                'title' => 'Shipping Timeline Policy',
+                'key' => 'expense_reimbursement_policy',
+                'title' => 'Expense Reimbursement Policy',
                 'relevant' => true,
-                'content' => 'Weather and carrier disruptions may extend delivery windows by up to 2 business days. Customers should receive transparent timeline updates.',
+                'content' => "Department: Finance
+Policy Title: Expense Reimbursement Policy
+Version: 4.0
+
+1. Purpose
+
+This policy defines the rules and procedures for reimbursing employee expenses incurred during business activities.
+
+The objective of this policy is to:
+
+- ensure consistent reimbursement practices
+- maintain financial accountability
+- control company spending
+- support employees in performing their duties
+
+Employees are responsible for understanding and complying with these requirements before submitting expense claims.
+
+2. Scope
+
+This policy applies to:
+
+- all employees
+- temporary staff
+- contractors authorized to incur business expenses
+
+Covered expenses may include:
+
+- meals during business travel
+- transportation
+- accommodation
+- business-related supplies
+3. General Principles
+
+Expenses must be:
+
+- business-related
+- reasonable in amount
+- properly documented
+- compliant with company policy
+
+Employees should make reasonable efforts to manage costs responsibly.
+
+4. Approval Requirements
+
+Certain expenses require prior approval before they are incurred.
+
+Meal expenses exceeding standard limits typically require advance authorization from a manager.
+
+These limits are established to promote responsible spending and ensure budget oversight.
+
+As a general guideline:
+
+Meal expenses above €50 per person normally require prior approval.
+
+5. Exceptional Circumstances
+
+In some situations, employees may incur expenses without prior approval due to unforeseen business needs.
+
+Examples may include:
+
+- meetings running longer than expected
+- limited dining options
+- urgent operational requirements
+
+In such cases:
+
+Reimbursement may still be considered following managerial review.
+
+However, reimbursement is not guaranteed and will depend on:
+
+- the justification provided
+- compliance with documentation requirements
+- managerial discretion
+6. Documentation Requirements
+
+All expense claims must include:
+
+- a receipt
+- date and location
+- purpose of the expense
+- explanation when required
+
+Incomplete claims may be delayed or rejected.",
             ],
             [
-                'key' => 'tracking_faq',
-                'title' => 'Tracking FAQ',
+                'key' => 'travel_expense_guidelines',
+                'title' => 'Travel and Business Expense Guidelines',
                 'relevant' => false,
-                'content' => 'Tracking statuses can remain unchanged during hub scans. This does not always indicate package loss.',
+                'content' => "Department: Operations
+Policy Title: Travel and Business Expense Guidelines
+
+1. Purpose
+
+These guidelines provide general recommendations for managing travel-related expenses responsibly.
+
+Employees are encouraged to:
+
+- plan travel in advance
+- choose cost-effective options
+- maintain accurate expense records
+2. Meal Expenses
+
+Meal expenses incurred during business travel are generally reimbursable when:
+
+- the expense is related to business activities
+- the amount is reasonable for the location
+- proper documentation is provided
+
+Employees should consider local price levels and business circumstances when selecting dining options.
+
+3. Responsibility
+
+Employees are responsible for ensuring that expense claims reflect legitimate business costs.
+
+Managers may review claims to verify compliance with company policies.",
             ],
             [
-                'key' => 'brand_voice',
-                'title' => 'Brand Voice Guide',
+                'key' => 'workplace_conduct_handbook',
+                'title' => 'Workplace Conduct Handbook',
                 'relevant' => false,
-                'content' => 'Use calm and clear language. Avoid technical jargon unless necessary for explanation.',
+                'content' => "Department: Human Resources
+Policy Title: Workplace Conduct Handbook
+
+1. Purpose
+
+This handbook outlines expectations for professional behavior and responsible decision-making in the workplace.
+
+The organization values:
+
+- professionalism
+- integrity
+- accountability
+- respect
+2. Responsible Use of Company Resources
+
+Employees should use company resources responsibly and avoid unnecessary expenses.
+
+Examples include:
+
+- managing time efficiently
+- using equipment appropriately
+- following company procedures
+3. Communication
+
+Employees should communicate clearly and respectfully when interacting with colleagues, clients, and partners.",
             ],
         ],
     ],

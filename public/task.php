@@ -15,7 +15,7 @@ $rawTask = $_GET['task'] ?? null;
 $taskNumber = filter_var($rawTask, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 
 $tasks = require __DIR__ . '/../data/tasks.php';
-$enabledTaskNumbers = [1]; // Temporary MVP gate
+$enabledTaskNumbers = [1, 2]; // Temporary MVP gate
 $totalTasks = count($enabledTaskNumbers);
 $errorMessage = null;
 $task = null;

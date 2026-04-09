@@ -54,7 +54,7 @@ if ($confidence === false || $confidence === null) {
 }
 
 $tasks = require __DIR__ . '/../data/tasks.php';
-$enabledTaskNumbers = [1]; // Temporary MVP gate
+$enabledTaskNumbers = [1, 2]; // Temporary MVP gate
 if (!in_array($taskNumber, $enabledTaskNumbers, true) || !isset($tasks[$taskNumber])) {
     http_response_code(400);
     exit('Task not found.');
