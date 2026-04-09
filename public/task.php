@@ -177,33 +177,44 @@ require __DIR__ . '/../views/header.php';
             </div>
         </section>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            <section class="lg:col-span-2 bg-white shadow rounded-xl p-5">
-                <h1 class="text-2xl font-bold text-slate-800 mb-4"><?= e($task['title']) ?></h1>
-
-                <div class="mb-4">
-                    <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-2">Scenario</h2>
-                    <p class="text-slate-700 leading-[1.4] whitespace-pre-line"><?= e($task['scenario']) ?></p>
-                </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <section class="lg:col-span-2 bg-white shadow rounded-xl p-4">
+                <h1 class="text-2xl font-bold text-slate-800 mb-3"><?= e($task['title']) ?></h1>
 
                 <?php if (!empty($task['work_task'])): ?>
-                    <div class="mb-4">
-                        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-2">Task</h2>
-                        <p class="text-slate-700 leading-[1.4] whitespace-pre-line"><?= e((string) $task['work_task']) ?></p>
+                    <div class="mb-3">
+                        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Task</h2>
+                        <p class="text-slate-700 leading-[1.35] whitespace-pre-line"><?= e((string) $task['work_task']) ?></p>
+                    </div>
+                <?php endif; ?>
+
+                <div class="mb-3">
+                    <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Scenario</h2>
+                    <p class="text-slate-700 leading-[1.35] whitespace-pre-line"><?= e($task['scenario']) ?></p>
+                </div>
+
+                <?php if (!empty($task['ai_prompt'])): ?>
+                    <div class="mb-2">
+                        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-1">AI Prompt</h2>
+                        <?php $aiPromptText = trim((string) preg_replace("/\R{3,}/", "\n\n", (string) $task['ai_prompt'])); ?>
+                        <div class="p-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 leading-[1.15]">
+                            <?= nl2br(e($aiPromptText)) ?>
+                        </div>
                     </div>
                 <?php endif; ?>
 
                 <div>
-                    <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-2">AI Output</h2>
+                    <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-1">AI Output</h2>
                     <?php if ($showPassiveNotice): ?>
-                        <p class="mb-3 text-[0.9rem] leading-[1.45] font-normal text-gray-500">
+                        <p class="mb-2 text-[0.9rem] leading-[1.4] font-normal text-gray-500">
                             Note:
                             AI-generated responses may contain inaccuracies or incomplete information. Consider reviewing
                             the available information before making your decision.
                         </p>
                     <?php endif; ?>
-                    <div class="p-4 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 leading-[1.4]">
-                        <?= nl2br(e($task['ai_output'])) ?>
+                    <?php $aiOutputText = trim((string) preg_replace("/\R{3,}/", "\n\n", (string) $task['ai_output'])); ?>
+                    <div class="p-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 leading-[1.15]">
+                        <?= nl2br(e($aiOutputText)) ?>
                     </div>
                 </div>
             </section>
