@@ -413,23 +413,23 @@ require __DIR__ . '/../views/header.php';
                     <div class="space-y-1.5 text-slate-700">
                         <label class="radio-option">
                             <input type="radio" name="confidence" value="1" class="custom-radio" required <?= $prefillConfidence === '1' ? 'checked' : '' ?>>
-                            <span class="radio-option-text">1 — Not at all confident</span>
+                            <span class="radio-option-text">1 - Not at all confident</span>
                         </label>
                         <label class="radio-option">
                             <input type="radio" name="confidence" value="2" class="custom-radio" <?= $prefillConfidence === '2' ? 'checked' : '' ?>>
-                            <span class="radio-option-text">2 — Slightly confident</span>
+                            <span class="radio-option-text">2 - Slightly confident</span>
                         </label>
                         <label class="radio-option">
                             <input type="radio" name="confidence" value="3" class="custom-radio" <?= $prefillConfidence === '3' ? 'checked' : '' ?>>
-                            <span class="radio-option-text">3 — Moderately confident</span>
+                            <span class="radio-option-text">3 - Moderately confident</span>
                         </label>
                         <label class="radio-option">
                             <input type="radio" name="confidence" value="4" class="custom-radio" <?= $prefillConfidence === '4' ? 'checked' : '' ?>>
-                            <span class="radio-option-text">4 — Very confident</span>
+                            <span class="radio-option-text">4 - Very confident</span>
                         </label>
                         <label class="radio-option">
                             <input type="radio" name="confidence" value="5" class="custom-radio" <?= $prefillConfidence === '5' ? 'checked' : '' ?>>
-                            <span class="radio-option-text">5 — Extremely confident</span>
+                            <span class="radio-option-text">5 - Extremely confident</span>
                         </label>
                     </div>
                     <p id="confidence-error" class="mt-2 text-sm text-red-600 hidden">Please select a confidence value.</p>

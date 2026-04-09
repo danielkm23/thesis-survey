@@ -206,7 +206,7 @@ $pageTitle = 'Post-Survey';
 require __DIR__ . '/../views/header.php';
 ?>
 
-<main class="max-w-4xl mx-auto px-4 py-8">
+<main class="max-w-6xl mx-auto px-4 py-8">
     <section class="bg-white shadow rounded-xl p-4 mb-4">
         <div class="flex items-center justify-between mb-2">
             <p class="text-sm text-slate-500">Step <?= e((string) $currentStudyStep) ?> of <?= e((string) $totalStudySteps) ?></p>
@@ -233,7 +233,7 @@ require __DIR__ . '/../views/header.php';
                                 </th>
                                 <?php foreach ($likertLabels as $value => $label): ?>
                                     <th class="text-center text-xs font-semibold text-slate-700 px-2 py-2 border-b border-slate-200 min-w-[120px]">
-                                        <?= e($value . ' — ' . $label) ?>
+                                        <?= e($value . ' - ' . $label) ?>
                                     </th>
                                 <?php endforeach; ?>
                             </tr>
@@ -252,7 +252,7 @@ require __DIR__ . '/../views/header.php';
                                                 value="<?= $optionValue ?>"
                                                 required
                                                 class="h-4 w-4 cursor-pointer"
-                                                aria-label="<?= e('Item ' . $index . ', ' . $optionValue . ' — ' . $label) ?>"
+                                                aria-label="<?= e('Item ' . $index . ', ' . $optionValue . ' - ' . $label) ?>"
                                                 <?= (string) $optionValue === (string) ($storedAnswers['ai_lit_' . $index] ?? '') ? 'checked' : '' ?>
                                             >
                                         </td>
@@ -393,7 +393,7 @@ require __DIR__ . '/../views/header.php';
                                 class="h-4 w-4"
                                 <?= (string) $optionValue === (string) ($storedAnswers['instruction_notice'] ?? '') ? 'checked' : '' ?>
                             >
-                            <span><?= e($optionValue . ' — ' . $label) ?></span>
+                            <span><?= e($optionValue . ' - ' . $label) ?></span>
                         </label>
                     <?php endforeach; ?>
                 </div>
@@ -415,7 +415,7 @@ require __DIR__ . '/../views/header.php';
                                 class="h-4 w-4"
                                 <?= (string) $optionValue === (string) ($storedAnswers['task_realism'] ?? '') ? 'checked' : '' ?>
                             >
-                            <span><?= e($optionValue . ' — ' . $label) ?></span>
+                            <span><?= e($optionValue . ' - ' . $label) ?></span>
                         </label>
                     <?php endforeach; ?>
                 </div>
