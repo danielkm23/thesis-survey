@@ -215,25 +215,30 @@ foreach ($conditionRows as $row) {
 /**
  * Average unique documents opened per participant by condition.
  */
-$avgDocsStmt = $pdo->query(
-    'SELECT
-        p.condition_name,
-        AVG(COALESCE(doc_counts.docs_opened, 0)) AS avg_docs_opened
-     FROM participants p
-     LEFT JOIN (
-        SELECT
-            participant_id,
-            COUNT(DISTINCT CONCAT(task_number, CHAR(58), document_key)) AS docs_opened
-        FROM document_events
-        WHERE event_type = \'open\'
-        GROUP BY participant_id
-     ) AS doc_counts
-       ON doc_counts.participant_id = p.id
-     GROUP BY p.condition_name'
-);
 $avgDocsOpenedByCondition = [];
-foreach ($avgDocsStmt->fetchAll() as $row) {
-    $avgDocsOpenedByCondition[(string) $row['condition_name']] = (float) $row['avg_docs_opened'];
+try {
+    $avgDocsStmt = $pdo->query(
+        'SELECT
+            p.condition_name,
+            AVG(COALESCE(doc_counts.docs_opened, 0)) AS avg_docs_opened
+         FROM participants p
+         LEFT JOIN (
+            SELECT
+                participant_id,
+                COUNT(DISTINCT task_number, document_key) AS docs_opened
+            FROM document_events
+            WHERE event_type = \'open\'
+            GROUP BY participant_id
+         ) AS doc_counts
+           ON doc_counts.participant_id = p.id
+         GROUP BY p.condition_name'
+    );
+    foreach ($avgDocsStmt->fetchAll() as $row) {
+        $avgDocsOpenedByCondition[(string) $row['condition_name']] = (float) $row['avg_docs_opened'];
+    }
+} catch (Throwable $e) {
+    // Keep dashboard loadable even if SQL mode differs in production.
+    $avgDocsOpenedByCondition = [];
 }
 
 /**
