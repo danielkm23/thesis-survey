@@ -223,9 +223,9 @@ $avgDocsStmt = $pdo->query(
      LEFT JOIN (
         SELECT
             participant_id,
-            COUNT(DISTINCT CONCAT(task_number, ":", document_key)) AS docs_opened
+            COUNT(DISTINCT CONCAT(task_number, CHAR(58), document_key)) AS docs_opened
         FROM document_events
-        WHERE event_type = "open"
+        WHERE event_type = \'open\'
         GROUP BY participant_id
      ) AS doc_counts
        ON doc_counts.participant_id = p.id
@@ -245,7 +245,7 @@ $avgInspectStmt = $pdo->query(
         AVG(de.view_ms) / 1000.0 AS avg_inspection_seconds
      FROM participants p
      JOIN document_events de ON de.participant_id = p.id
-     WHERE de.event_type = "close"
+     WHERE de.event_type = \'close\'
        AND de.view_ms IS NOT NULL
      GROUP BY p.condition_name'
 );
@@ -482,7 +482,7 @@ $taskRows = $taskRowsStmt->fetchAll();
 $openEventsStmt = $pdo->query(
     'SELECT DISTINCT participant_id, task_number, document_key
      FROM document_events
-     WHERE event_type = "open"'
+     WHERE event_type = \'open\''
 );
 $openedDocKeys = [];
 foreach ($openEventsStmt->fetchAll() as $row) {
