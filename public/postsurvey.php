@@ -62,6 +62,49 @@ if (!is_array($storedAnswers)) {
     $storedAnswers = [];
 }
 
+$participantId = (int) session_get('participant_id', 0);
+if ($participantId > 0) {
+    try {
+        $existingPostsurveyStmt = db()->prepare(
+            'SELECT *
+             FROM postsurvey_responses
+             WHERE participant_id = :participant_id
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $existingPostsurveyStmt->execute([
+            ':participant_id' => $participantId,
+        ]);
+        $existingPostsurveyResponse = $existingPostsurveyStmt->fetch(PDO::FETCH_ASSOC);
+        if (is_array($existingPostsurveyResponse)) {
+            $dbAnswerKeys = [
+                'ai_lit_1',
+                'ai_lit_2',
+                'ai_lit_3',
+                'ai_lit_4',
+                'ai_lit_5',
+                'ai_lit_6',
+                'instruction_notice',
+                'task_realism',
+                'crt_1',
+                'crt_2',
+                'crt_3',
+                'ai_experience',
+                'age',
+                'gender',
+                'education',
+            ];
+            foreach ($dbAnswerKeys as $key) {
+                if (!array_key_exists($key, $storedAnswers) && array_key_exists($key, $existingPostsurveyResponse)) {
+                    $storedAnswers[$key] = $existingPostsurveyResponse[$key];
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        // Keep page usable even if DB prefill fails.
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($step === 'ai') {
         $storedAnswers['ai_lit_1'] = required_int_post('ai_lit_1', 1, 5);
@@ -96,6 +139,10 @@ $requiredInstructionNoticeKeys = ['instruction_notice', 'task_realism'];
 $hasAiAnswers = has_required_keys($storedAnswers, $requiredAiKeys);
 $hasCrtAnswers = has_required_keys($storedAnswers, $requiredCrtKeys);
 $hasInstructionNoticeAnswer = has_required_keys($storedAnswers, $requiredInstructionNoticeKeys);
+$prefillAiExperience = (string) ($storedAnswers['ai_experience'] ?? '');
+$prefillAge = (string) ($storedAnswers['age'] ?? '');
+$prefillGender = (string) ($storedAnswers['gender'] ?? '');
+$prefillEducation = (string) ($storedAnswers['education'] ?? '');
 
 if ($step === 'crt' && !$hasAiAnswers) {
     redirect('postsurvey.php?step=ai');
@@ -119,8 +166,13 @@ $stepNumbers = [
     'instruction_notice' => 3,
     'demographics' => 4,
 ];
+$enabledTaskNumbers = [1, 2]; // Temporary MVP gate (keep in sync with task flow)
+$totalTasks = count($enabledTaskNumbers);
+$totalPostSurveyParts = count($stepNumbers);
 $currentStepNumber = $stepNumbers[$step];
-$progressPercent = (int) round(($currentStepNumber / 4) * 100);
+$currentStudyStep = $totalTasks + $currentStepNumber;
+$totalStudySteps = $totalTasks + $totalPostSurveyParts;
+$progressPercent = (int) round(($currentStudyStep / max(1, $totalStudySteps)) * 100);
 
 $aiLitItems = [
     1 => [
@@ -157,17 +209,12 @@ require __DIR__ . '/../views/header.php';
 <main class="max-w-4xl mx-auto px-4 py-8">
     <section class="bg-white shadow rounded-xl p-4 mb-4">
         <div class="flex items-center justify-between mb-2">
-            <p class="text-sm text-slate-500">Post-Survey</p>
-            <p class="text-sm text-slate-500">Part <?= e((string) $currentStepNumber) ?> of 4</p>
+            <p class="text-sm text-slate-500">Step <?= e((string) $currentStudyStep) ?> of <?= e((string) $totalStudySteps) ?></p>
+            <p class="text-sm text-slate-500"><?= e((string) $progressPercent) ?>% complete</p>
         </div>
         <div class="w-full h-2 bg-slate-200 rounded">
             <div class="h-2 accent-bg rounded" style="width: <?= e((string) $progressPercent) ?>%"></div>
         </div>
-    </section>
-
-    <section class="bg-white shadow rounded-xl p-6 mb-6">
-        <h1 class="text-2xl font-bold text-slate-800 mb-2">Post-Survey</h1>
-        <p class="text-slate-600">Please complete this short survey before finishing the study.</p>
     </section>
 
     <?php if ($step === 'ai'): ?>
@@ -193,18 +240,18 @@ require __DIR__ . '/../views/header.php';
                         </thead>
                         <tbody>
                             <?php foreach ($aiLitItems as $index => $item): ?>
-                                <tr class="border-b border-slate-200 last:border-b-0">
+                                <tr class="group border-b border-slate-200 last:border-b-0 hover:bg-slate-50 transition-colors">
                                     <td class="align-top text-slate-800 text-sm px-3 py-3 break-words">
                                         <?= e($item['question']) ?>
                                     </td>
                                     <?php foreach ($likertLabels as $optionValue => $label): ?>
-                                        <td class="text-center px-2 py-3">
+                                        <td class="text-center px-2 py-3 group-hover:bg-slate-50 hover:bg-slate-100 transition-colors">
                                             <input
                                                 type="radio"
                                                 name="ai_lit_<?= $index ?>"
                                                 value="<?= $optionValue ?>"
                                                 required
-                                                class="h-4 w-4"
+                                                class="h-4 w-4 cursor-pointer"
                                                 aria-label="<?= e('Item ' . $index . ', ' . $optionValue . ' — ' . $label) ?>"
                                                 <?= (string) $optionValue === (string) ($storedAnswers['ai_lit_' . $index] ?? '') ? 'checked' : '' ?>
                                             >
@@ -400,23 +447,23 @@ require __DIR__ . '/../views/header.php';
                         <legend class="text-slate-800 mb-2">How often do you use AI tools (e.g., ChatGPT, Copilot, Gemini)?</legend>
                         <div class="space-y-2 text-slate-700">
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="never" required class="h-4 w-4">
+                                <input type="radio" name="ai_experience" value="never" required class="h-4 w-4" <?= $prefillAiExperience === 'never' ? 'checked' : '' ?>>
                                 <span>Never</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="less_than_monthly" required class="h-4 w-4">
+                                <input type="radio" name="ai_experience" value="less_than_monthly" required class="h-4 w-4" <?= $prefillAiExperience === 'less_than_monthly' ? 'checked' : '' ?>>
                                 <span>Less than once per month</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="few_times_per_month" required class="h-4 w-4">
+                                <input type="radio" name="ai_experience" value="few_times_per_month" required class="h-4 w-4" <?= $prefillAiExperience === 'few_times_per_month' ? 'checked' : '' ?>>
                                 <span>A few times per month</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="few_times_per_week" required class="h-4 w-4">
+                                <input type="radio" name="ai_experience" value="few_times_per_week" required class="h-4 w-4" <?= $prefillAiExperience === 'few_times_per_week' ? 'checked' : '' ?>>
                                 <span>A few times per week</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="daily" required class="h-4 w-4">
+                                <input type="radio" name="ai_experience" value="daily" required class="h-4 w-4" <?= $prefillAiExperience === 'daily' ? 'checked' : '' ?>>
                                 <span>Daily</span>
                             </label>
                         </div>
@@ -431,6 +478,7 @@ require __DIR__ . '/../views/header.php';
                             max="100"
                             name="age"
                             required
+                            value="<?= e($prefillAge) ?>"
                             class="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2"
                         >
                         <p id="age-error" class="mt-2 text-sm text-red-600 hidden">
@@ -442,11 +490,11 @@ require __DIR__ . '/../views/header.php';
                         <legend class="text-slate-800 mb-2">Gender</legend>
                         <div class="space-y-2 text-slate-700">
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="gender" value="male" required class="h-4 w-4">
+                                <input type="radio" name="gender" value="male" required class="h-4 w-4" <?= $prefillGender === 'male' ? 'checked' : '' ?>>
                                 <span>Male</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="gender" value="female" required class="h-4 w-4">
+                                <input type="radio" name="gender" value="female" required class="h-4 w-4" <?= $prefillGender === 'female' ? 'checked' : '' ?>>
                                 <span>Female</span>
                             </label>
                         </div>
@@ -456,27 +504,27 @@ require __DIR__ . '/../views/header.php';
                         <legend class="text-slate-800 mb-2">What is the highest level of education you have completed?</legend>
                         <div class="space-y-2 text-slate-700">
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="education" value="secondary_education" required class="h-4 w-4">
+                                <input type="radio" name="education" value="secondary_education" required class="h-4 w-4" <?= $prefillEducation === 'secondary_education' ? 'checked' : '' ?>>
                                 <span>Secondary education (e.g., high school or equivalent)</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="education" value="currently_enrolled_bachelors" required class="h-4 w-4">
+                                <input type="radio" name="education" value="currently_enrolled_bachelors" required class="h-4 w-4" <?= $prefillEducation === 'currently_enrolled_bachelors' ? 'checked' : '' ?>>
                                 <span>Currently enrolled in a Bachelor's program</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="education" value="bachelors" required class="h-4 w-4">
+                                <input type="radio" name="education" value="bachelors" required class="h-4 w-4" <?= $prefillEducation === 'bachelors' ? 'checked' : '' ?>>
                                 <span>Bachelor's degree</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="education" value="masters" required class="h-4 w-4">
+                                <input type="radio" name="education" value="masters" required class="h-4 w-4" <?= $prefillEducation === 'masters' ? 'checked' : '' ?>>
                                 <span>Master's degree</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="education" value="doctoral_degree" required class="h-4 w-4">
+                                <input type="radio" name="education" value="doctoral_degree" required class="h-4 w-4" <?= $prefillEducation === 'doctoral_degree' ? 'checked' : '' ?>>
                                 <span>Doctoral degree (PhD or equivalent)</span>
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" name="education" value="prefer_not_to_say" required class="h-4 w-4">
+                                <input type="radio" name="education" value="prefer_not_to_say" required class="h-4 w-4" <?= $prefillEducation === 'prefer_not_to_say' ? 'checked' : '' ?>>
                                 <span>Prefer not to say</span>
                             </label>
                         </div>

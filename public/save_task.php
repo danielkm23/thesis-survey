@@ -102,6 +102,28 @@ session_set('task_' . $taskNumber . '_total_time_seconds', $elapsedSeconds);
 $taskShortTimeFlag = $elapsedSeconds < 15 ? 1 : 0;
 
 $pdo = db();
+$existingTaskStmt = $pdo->prepare(
+    'SELECT id
+     FROM task_responses
+     WHERE participant_id = :participant_id AND task_number = :task_number
+     LIMIT 1'
+);
+$existingTaskStmt->execute([
+    ':participant_id' => $participantId,
+    ':task_number' => $taskNumber,
+]);
+$alreadySubmitted = $existingTaskStmt->fetchColumn() !== false;
+
+$lastTaskNumber = max($enabledTaskNumbers);
+if ($alreadySubmitted) {
+    if ($taskNumber >= $lastTaskNumber) {
+        redirect('postsurvey.php');
+    }
+
+    $nextTaskNumber = $taskNumber + 1;
+    redirect('task.php?task=' . $nextTaskNumber);
+}
+
 $hasDurationColumns = false;
 $hasVerificationColumns = false;
 try {
@@ -122,20 +144,26 @@ if ($hasDurationColumns && $hasVerificationColumns) {
             (:participant_id, :task_number, :ai_correct, :reliance_choice, :final_response, :confidence, :active_reflection, :verification_intention, :task_started_at, :task_submitted_at, :duration_seconds, :short_time_flag)'
     );
 
-    $stmt->execute([
-        ':participant_id' => $participantId,
-        ':task_number' => $taskNumber,
-        ':ai_correct' => $aiCorrect,
-        ':reliance_choice' => $relianceChoice,
-        ':final_response' => $finalResponse,
-        ':confidence' => $confidence,
-        ':active_reflection' => null,
-        ':verification_intention' => $verificationIntention,
-        ':task_started_at' => $taskStartedAt,
-        ':task_submitted_at' => $taskSubmittedAt,
-        ':duration_seconds' => $elapsedSeconds,
-        ':short_time_flag' => $taskShortTimeFlag,
-    ]);
+    try {
+        $stmt->execute([
+            ':participant_id' => $participantId,
+            ':task_number' => $taskNumber,
+            ':ai_correct' => $aiCorrect,
+            ':reliance_choice' => $relianceChoice,
+            ':final_response' => $finalResponse,
+            ':confidence' => $confidence,
+            ':active_reflection' => null,
+            ':verification_intention' => $verificationIntention,
+            ':task_started_at' => $taskStartedAt,
+            ':task_submitted_at' => $taskSubmittedAt,
+            ':duration_seconds' => $elapsedSeconds,
+            ':short_time_flag' => $taskShortTimeFlag,
+        ]);
+    } catch (PDOException $e) {
+        if ((string) $e->getCode() !== '23000') {
+            throw $e;
+        }
+    }
 } elseif ($hasDurationColumns) {
     $stmt = $pdo->prepare(
         'INSERT INTO task_responses
@@ -144,21 +172,27 @@ if ($hasDurationColumns && $hasVerificationColumns) {
             (:participant_id, :task_number, :ai_correct, :reliance_choice, :final_response, :confidence, :active_reflection, :task_started_at, :task_submitted_at, :duration_seconds, :short_time_flag)'
     );
 
-    $stmt->execute([
-        ':participant_id' => $participantId,
-        ':task_number' => $taskNumber,
-        ':ai_correct' => $aiCorrect,
-        ':reliance_choice' => $relianceChoice,
-        ':final_response' => $finalResponse,
-        ':confidence' => $confidence,
-        ':active_reflection' => $conditionName === 'active'
-            ? ('verification_intention=' . $verificationIntention)
-            : null,
-        ':task_started_at' => $taskStartedAt,
-        ':task_submitted_at' => $taskSubmittedAt,
-        ':duration_seconds' => $elapsedSeconds,
-        ':short_time_flag' => $taskShortTimeFlag,
-    ]);
+    try {
+        $stmt->execute([
+            ':participant_id' => $participantId,
+            ':task_number' => $taskNumber,
+            ':ai_correct' => $aiCorrect,
+            ':reliance_choice' => $relianceChoice,
+            ':final_response' => $finalResponse,
+            ':confidence' => $confidence,
+            ':active_reflection' => $conditionName === 'active'
+                ? ('verification_intention=' . $verificationIntention)
+                : null,
+            ':task_started_at' => $taskStartedAt,
+            ':task_submitted_at' => $taskSubmittedAt,
+            ':duration_seconds' => $elapsedSeconds,
+            ':short_time_flag' => $taskShortTimeFlag,
+        ]);
+    } catch (PDOException $e) {
+        if ((string) $e->getCode() !== '23000') {
+            throw $e;
+        }
+    }
 } else {
     $stmt = $pdo->prepare(
         'INSERT INTO task_responses
@@ -167,22 +201,26 @@ if ($hasDurationColumns && $hasVerificationColumns) {
             (:participant_id, :task_number, :ai_correct, :reliance_choice, :final_response, :confidence, :active_reflection, :task_started_at, :task_submitted_at)'
     );
 
-    $stmt->execute([
-        ':participant_id' => $participantId,
-        ':task_number' => $taskNumber,
-        ':ai_correct' => $aiCorrect,
-        ':reliance_choice' => $relianceChoice,
-        ':final_response' => $finalResponse,
-        ':confidence' => $confidence,
-        ':active_reflection' => $conditionName === 'active'
-            ? ('verification_intention=' . $verificationIntention)
-            : null,
-        ':task_started_at' => $taskStartedAt,
-        ':task_submitted_at' => $taskSubmittedAt,
-    ]);
+    try {
+        $stmt->execute([
+            ':participant_id' => $participantId,
+            ':task_number' => $taskNumber,
+            ':ai_correct' => $aiCorrect,
+            ':reliance_choice' => $relianceChoice,
+            ':final_response' => $finalResponse,
+            ':confidence' => $confidence,
+            ':active_reflection' => $conditionName === 'active'
+                ? ('verification_intention=' . $verificationIntention)
+                : null,
+            ':task_started_at' => $taskStartedAt,
+            ':task_submitted_at' => $taskSubmittedAt,
+        ]);
+    } catch (PDOException $e) {
+        if ((string) $e->getCode() !== '23000') {
+            throw $e;
+        }
+    }
 }
-
-$lastTaskNumber = max($enabledTaskNumbers);
 
 if ($taskNumber >= $lastTaskNumber) {
     redirect('postsurvey.php');

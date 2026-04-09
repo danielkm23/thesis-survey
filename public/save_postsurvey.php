@@ -135,6 +135,20 @@ if (is_string($postsurveyStartedAt) && $postsurveyStartedAt !== '') {
 }
 
 $pdo = db();
+$existingPostsurveyStmt = $pdo->prepare(
+    'SELECT id
+     FROM postsurvey_responses
+     WHERE participant_id = :participant_id
+     LIMIT 1'
+);
+$existingPostsurveyStmt->execute([
+    ':participant_id' => $participantId,
+]);
+$alreadySubmitted = $existingPostsurveyStmt->fetchColumn() !== false;
+if ($alreadySubmitted) {
+    redirect('thankyou.php');
+}
+
 $hasAiLit6Column = false;
 $hasInstructionNoticeColumn = false;
 $hasTaskRealismColumn = false;
@@ -218,7 +232,13 @@ $insertSql = sprintf(
 );
 
 $insert = $pdo->prepare($insertSql);
-$insert->execute($params);
+try {
+    $insert->execute($params);
+} catch (PDOException $e) {
+    if ((string) $e->getCode() !== '23000') {
+        throw $e;
+    }
+}
 
 $updateParticipant = $pdo->prepare(
     'UPDATE participants

@@ -115,6 +115,7 @@ CREATE TABLE `postsurvey_responses` (
   `short_time_flag` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   KEY `idx_postsurvey_participant` (`participant_id`),
+  UNIQUE KEY `uniq_postsurvey_participant` (`participant_id`),
   CONSTRAINT `fk_postsurvey_participant` FOREIGN KEY (`participant_id`) REFERENCES `participants` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -153,6 +154,7 @@ CREATE TABLE `task_responses` (
   PRIMARY KEY (`id`),
   KEY `idx_task_responses_participant` (`participant_id`),
   KEY `idx_task_responses_task` (`task_number`),
+  UNIQUE KEY `uniq_task_responses_participant_task` (`participant_id`,`task_number`),
   CONSTRAINT `fk_task_responses_participant` FOREIGN KEY (`participant_id`) REFERENCES `participants` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=51 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

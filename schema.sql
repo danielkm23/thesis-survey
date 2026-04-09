@@ -38,6 +38,7 @@ CREATE TABLE task_responses (
     short_time_flag TINYINT(1) NOT NULL DEFAULT 0,
     INDEX idx_task_responses_participant (participant_id),
     INDEX idx_task_responses_task (task_number),
+    UNIQUE KEY uniq_task_responses_participant_task (participant_id, task_number),
     CONSTRAINT fk_task_responses_participant
         FOREIGN KEY (participant_id) REFERENCES participants(id)
 );
@@ -64,6 +65,7 @@ CREATE TABLE postsurvey_responses (
     duration_seconds INT UNSIGNED NULL,
     short_time_flag TINYINT(1) NOT NULL DEFAULT 0,
     INDEX idx_postsurvey_participant (participant_id),
+    UNIQUE KEY uniq_postsurvey_participant (participant_id),
     CONSTRAINT fk_postsurvey_participant
         FOREIGN KEY (participant_id) REFERENCES participants(id)
 );

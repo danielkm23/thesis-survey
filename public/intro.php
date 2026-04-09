@@ -11,13 +11,14 @@ if (!has_valid_participant_session()) {
     redirect('index.php');
 }
 
+$participantId = (int) session_get('participant_id', 0);
+
 $pageTitle = 'Study Introduction';
 require __DIR__ . '/../views/header.php';
 ?>
 
 <main class="max-w-3xl mx-auto px-4 py-12">
     <section class="bg-white shadow rounded-xl p-8">
-        <p class="text-sm text-slate-500 mb-3">Step 0 of 5</p>
         <h1 class="text-2xl font-bold text-slate-800 mb-3">Study Information and Consent</h1>
         <h2 class="text-lg font-semibold text-slate-800 mb-2">Study description</h2>
         <p class="text-slate-600 mb-3">
@@ -56,7 +57,8 @@ require __DIR__ . '/../views/header.php';
             You may consult any available information before making your decision.
         </p>
         <p class="text-slate-600 mb-6">
-            There are no trick questions.<br>
+            There are no right or wrong answers.<br>
+            All necessary information is provided within the survey.<br>
             We are interested in your natural decision-making process.
         </p>
 
@@ -67,7 +69,7 @@ require __DIR__ . '/../views/header.php';
             <li>You have read and understood the information above</li>
             <li>You agree to participate in this study voluntarily</li>
         </ul>
-        <form method="get" action="task.php">
+        <form id="intro-consent-form" method="get" action="task.php">
             <input type="hidden" name="task" value="1">
             <label class="flex items-center gap-2 text-slate-700 mb-4">
                 <input
@@ -94,8 +96,32 @@ require __DIR__ . '/../views/header.php';
     (function () {
         var consentCheckbox = document.getElementById('consent-confirmation');
         var continueButton = document.getElementById('consent-continue-button');
+        var consentForm = document.getElementById('intro-consent-form');
+        var participantId = <?= (int) $participantId ?>;
+        var consentStorageKey = 'thesis_intro_consent_' + String(participantId || 'default');
         if (!consentCheckbox || !continueButton) {
             return;
+        }
+
+        function loadSavedConsentState() {
+            try {
+                var saved = localStorage.getItem(consentStorageKey);
+                if (saved === '1') {
+                    consentCheckbox.checked = true;
+                } else if (saved === '0') {
+                    consentCheckbox.checked = false;
+                }
+            } catch (error) {
+                // Ignore localStorage read failures silently.
+            }
+        }
+
+        function saveConsentState() {
+            try {
+                localStorage.setItem(consentStorageKey, consentCheckbox.checked ? '1' : '0');
+            } catch (error) {
+                // Ignore localStorage write failures silently.
+            }
         }
 
         function syncConsentState() {
@@ -105,9 +131,16 @@ require __DIR__ . '/../views/header.php';
             } else {
                 continueButton.classList.add('opacity-60', 'cursor-not-allowed');
             }
+            saveConsentState();
         }
 
         consentCheckbox.addEventListener('change', syncConsentState);
+        if (consentForm) {
+            consentForm.addEventListener('submit', function () {
+                saveConsentState();
+            });
+        }
+        loadSavedConsentState();
         syncConsentState();
     })();
 </script>

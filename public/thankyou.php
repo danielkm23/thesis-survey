@@ -17,7 +17,6 @@ require __DIR__ . '/../views/header.php';
 
 <main class="max-w-3xl mx-auto px-4 py-12">
     <section class="bg-white shadow rounded-xl p-8">
-        <p class="text-sm text-slate-500 mb-3">Step 5 of 5</p>
         <h1 class="text-2xl font-bold text-slate-800 mb-3">Thank you for completing the study.</h1>
         <p class="text-slate-600 mb-2">Your task responses and post-survey answers were recorded successfully.</p>
         <p class="text-slate-600 mb-2">If you were given a completion code by your researcher, you can now report it.</p>

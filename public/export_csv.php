@@ -1,9 +1,17 @@
 <?php
 declare(strict_types=1);
 
+session_start();
+
 require_once __DIR__ . '/../app/config.php';
 require_once __DIR__ . '/../app/helpers.php';
 require_once __DIR__ . '/../app/db.php';
+
+$dashboardSessionKey = 'dashboard_authenticated';
+if (session_get($dashboardSessionKey) !== true) {
+    http_response_code(403);
+    exit('Forbidden.');
+}
 
 $allowedTables = [
     'participants',

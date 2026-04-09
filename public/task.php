@@ -19,6 +19,7 @@ $enabledTaskNumbers = [1, 2]; // Temporary MVP gate
 $totalTasks = count($enabledTaskNumbers);
 $errorMessage = null;
 $task = null;
+$existingTaskResponse = null;
 $documentsInDisplayOrder = [];
 $initialOpenEventOrder = 0;
 
@@ -30,6 +31,52 @@ if (
 ) {
     $errorMessage = 'Invalid task. Please return to the introduction page and try again.';
 } else {
+    $participantId = (int) session_get('participant_id', 0);
+    $completedTaskNumbers = [];
+    if ($participantId > 0) {
+        $completedTasksStmt = db()->prepare(
+            'SELECT DISTINCT task_number
+             FROM task_responses
+             WHERE participant_id = :participant_id'
+        );
+        $completedTasksStmt->execute([
+            ':participant_id' => $participantId,
+        ]);
+        $completedTaskNumbers = array_values(array_filter(
+            array_map('intval', $completedTasksStmt->fetchAll(PDO::FETCH_COLUMN)),
+            static fn (int $value): bool => in_array($value, $enabledTaskNumbers, true)
+        ));
+    }
+
+    $firstPendingTaskNumber = null;
+    foreach ($enabledTaskNumbers as $enabledTaskNumber) {
+        if (!in_array($enabledTaskNumber, $completedTaskNumbers, true)) {
+            $firstPendingTaskNumber = $enabledTaskNumber;
+            break;
+        }
+    }
+
+    // Allow navigating back to already completed task pages.
+    // Only block attempts to jump ahead of the first unfinished task.
+    if ($firstPendingTaskNumber !== null && $taskNumber > $firstPendingTaskNumber) {
+        redirect('task.php?task=' . $firstPendingTaskNumber);
+    }
+
+    if ($participantId > 0) {
+        $existingTaskStmt = db()->prepare(
+            'SELECT final_response, reliance_choice, confidence, verification_intention, active_reflection
+             FROM task_responses
+             WHERE participant_id = :participant_id AND task_number = :task_number
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $existingTaskStmt->execute([
+            ':participant_id' => $participantId,
+            ':task_number' => $taskNumber,
+        ]);
+        $existingTaskResponse = $existingTaskStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
     $task = $tasks[$taskNumber];
 
     // Keep a simple task-start timestamp in session for each task.
@@ -101,7 +148,29 @@ if (
 $conditionName = (string) session_get('condition_name', '');
 $showPassiveNotice = $conditionName === 'passive';
 $isActiveCondition = $conditionName === 'active';
-$taskStep = $taskNumber !== false && $taskNumber !== null ? $taskNumber : 1;
+$prefillFinalResponse = is_array($existingTaskResponse)
+    ? trim((string) ($existingTaskResponse['final_response'] ?? ''))
+    : '';
+$prefillRelianceChoice = is_array($existingTaskResponse)
+    ? trim((string) ($existingTaskResponse['reliance_choice'] ?? ''))
+    : '';
+$prefillConfidence = is_array($existingTaskResponse)
+    ? trim((string) ($existingTaskResponse['confidence'] ?? ''))
+    : '';
+$prefillVerificationIntention = '';
+if (is_array($existingTaskResponse)) {
+    $prefillVerificationIntention = trim((string) ($existingTaskResponse['verification_intention'] ?? ''));
+    if ($prefillVerificationIntention === '') {
+        $activeReflection = trim((string) ($existingTaskResponse['active_reflection'] ?? ''));
+        if (str_starts_with($activeReflection, 'verification_intention=')) {
+            $prefillVerificationIntention = substr($activeReflection, strlen('verification_intention='));
+        }
+    }
+}
+$taskStepIndex = $taskNumber !== false && $taskNumber !== null
+    ? array_search($taskNumber, $enabledTaskNumbers, true)
+    : false;
+$taskStep = $taskStepIndex === false ? 1 : ($taskStepIndex + 1);
 $postsurveyParts = 4;
 $totalStudySteps = $totalTasks + $postsurveyParts;
 $progressPercent = (int) round(($taskStep / max(1, $totalStudySteps)) * 100);
@@ -172,7 +241,7 @@ require __DIR__ . '/../views/header.php';
         <section class="bg-white shadow rounded-xl p-4 mb-4">
             <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Step <?= e((string) $taskStep) ?> of <?= e((string) $totalStudySteps) ?></p>
-                <p class="text-sm text-slate-500">Task <?= e((string) $task['number']) ?> of <?= e((string) $totalTasks) ?></p>
+                <p class="text-sm text-slate-500"><?= e((string) $progressPercent) ?>% complete</p>
             </div>
             <div class="w-full h-2 bg-slate-200 rounded">
                 <div class="h-2 accent-bg rounded" style="width: <?= e((string) $progressPercent) ?>%"></div>
@@ -254,19 +323,19 @@ require __DIR__ . '/../views/header.php';
                         </p>
                         <div class="space-y-1.5 text-slate-700">
                             <label class="radio-option">
-                                <input type="radio" name="verification_intention" value="specific_claim_or_number" class="custom-radio" required>
+                                <input type="radio" name="verification_intention" value="specific_claim_or_number" class="custom-radio" required <?= $prefillVerificationIntention === 'specific_claim_or_number' ? 'checked' : '' ?>>
                                 <span class="radio-option-text">A specific claim or number</span>
                             </label>
                             <label class="radio-option">
-                                <input type="radio" name="verification_intention" value="policy_rule_or_requirement" class="custom-radio">
+                                <input type="radio" name="verification_intention" value="policy_rule_or_requirement" class="custom-radio" <?= $prefillVerificationIntention === 'policy_rule_or_requirement' ? 'checked' : '' ?>>
                                 <span class="radio-option-text">A policy rule or requirement</span>
                             </label>
                             <label class="radio-option">
-                                <input type="radio" name="verification_intention" value="overall_recommendation" class="custom-radio">
+                                <input type="radio" name="verification_intention" value="overall_recommendation" class="custom-radio" <?= $prefillVerificationIntention === 'overall_recommendation' ? 'checked' : '' ?>>
                                 <span class="radio-option-text">The overall recommendation</span>
                             </label>
                             <label class="radio-option">
-                                <input type="radio" name="verification_intention" value="would_not_verify" class="custom-radio">
+                                <input type="radio" name="verification_intention" value="would_not_verify" class="custom-radio" <?= $prefillVerificationIntention === 'would_not_verify' ? 'checked' : '' ?>>
                                 <span class="radio-option-text">I would not verify anything</span>
                             </label>
                         </div>
@@ -288,7 +357,7 @@ require __DIR__ . '/../views/header.php';
                         class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="Write your final response here..."
                         required
-                    ></textarea>
+                    ><?= e($prefillFinalResponse) ?></textarea>
                     <p id="final-response-error" class="mt-2 text-sm text-red-600 hidden">Please enter a final response.</p>
                 </div>
 
@@ -299,7 +368,7 @@ require __DIR__ . '/../views/header.php';
                     <div class="space-y-1.5 text-slate-700">
                         <label class="block">
                             <span class="radio-option">
-                                <input type="radio" name="reliance_choice" value="use_exact" class="custom-radio" required>
+                                <input type="radio" name="reliance_choice" value="use_exact" class="custom-radio" required <?= $prefillRelianceChoice === 'use_exact' ? 'checked' : '' ?>>
                                 <span class="radio-option-text">I used the response exactly as written</span>
                             </span>
                             <span class="radio-help block text-sm text-slate-500">
@@ -308,7 +377,7 @@ require __DIR__ . '/../views/header.php';
                         </label>
                         <label class="block">
                             <span class="radio-option">
-                                <input type="radio" name="reliance_choice" value="use_small_changes" class="custom-radio">
+                                <input type="radio" name="reliance_choice" value="use_small_changes" class="custom-radio" <?= $prefillRelianceChoice === 'use_small_changes' ? 'checked' : '' ?>>
                                 <span class="radio-option-text">I used the response with small changes (e.g., wording or tone adjustments)</span>
                             </span>
                             <span class="radio-help block text-sm text-slate-500">
@@ -317,7 +386,7 @@ require __DIR__ . '/../views/header.php';
                         </label>
                         <label class="block">
                             <span class="radio-option">
-                                <input type="radio" name="reliance_choice" value="use_substantial_changes" class="custom-radio">
+                                <input type="radio" name="reliance_choice" value="use_substantial_changes" class="custom-radio" <?= $prefillRelianceChoice === 'use_substantial_changes' ? 'checked' : '' ?>>
                                 <span class="radio-option-text">I used some parts of the response but changed substantial content</span>
                             </span>
                             <span class="radio-help block text-sm text-slate-500">
@@ -326,7 +395,7 @@ require __DIR__ . '/../views/header.php';
                         </label>
                         <label class="block">
                             <span class="radio-option">
-                                <input type="radio" name="reliance_choice" value="did_not_use" class="custom-radio">
+                                <input type="radio" name="reliance_choice" value="did_not_use" class="custom-radio" <?= $prefillRelianceChoice === 'did_not_use' ? 'checked' : '' ?>>
                                 <span class="radio-option-text">I did not use the response and wrote my own answer</span>
                             </span>
                             <span class="radio-help block text-sm text-slate-500">
@@ -343,23 +412,23 @@ require __DIR__ . '/../views/header.php';
                     </legend>
                     <div class="space-y-1.5 text-slate-700">
                         <label class="radio-option">
-                            <input type="radio" name="confidence" value="1" class="custom-radio" required>
+                            <input type="radio" name="confidence" value="1" class="custom-radio" required <?= $prefillConfidence === '1' ? 'checked' : '' ?>>
                             <span class="radio-option-text">1 — Not at all confident</span>
                         </label>
                         <label class="radio-option">
-                            <input type="radio" name="confidence" value="2" class="custom-radio">
+                            <input type="radio" name="confidence" value="2" class="custom-radio" <?= $prefillConfidence === '2' ? 'checked' : '' ?>>
                             <span class="radio-option-text">2 — Slightly confident</span>
                         </label>
                         <label class="radio-option">
-                            <input type="radio" name="confidence" value="3" class="custom-radio">
+                            <input type="radio" name="confidence" value="3" class="custom-radio" <?= $prefillConfidence === '3' ? 'checked' : '' ?>>
                             <span class="radio-option-text">3 — Moderately confident</span>
                         </label>
                         <label class="radio-option">
-                            <input type="radio" name="confidence" value="4" class="custom-radio">
+                            <input type="radio" name="confidence" value="4" class="custom-radio" <?= $prefillConfidence === '4' ? 'checked' : '' ?>>
                             <span class="radio-option-text">4 — Very confident</span>
                         </label>
                         <label class="radio-option">
-                            <input type="radio" name="confidence" value="5" class="custom-radio">
+                            <input type="radio" name="confidence" value="5" class="custom-radio" <?= $prefillConfidence === '5' ? 'checked' : '' ?>>
                             <span class="radio-option-text">5 — Extremely confident</span>
                         </label>
                     </div>

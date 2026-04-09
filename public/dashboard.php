@@ -91,6 +91,20 @@ function is_close_enough(float $value, float $target, float $tolerance = 0.01): 
     return abs($value - $target) <= $tolerance;
 }
 
+function int_in_range_or_null(mixed $value, int $min, int $max): ?int
+{
+    if ($value === null) {
+        return null;
+    }
+    $validated = filter_var($value, FILTER_VALIDATE_INT, [
+        'options' => ['min_range' => $min, 'max_range' => $max],
+    ]);
+    if ($validated === false) {
+        return null;
+    }
+    return (int) $validated;
+}
+
 $pdo = db();
 $currentTab = (string) ($_GET['tab'] ?? 'overview');
 if (!in_array($currentTab, ['overview', 'data', 'participant'], true)) {
@@ -402,7 +416,7 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
             $aiFields = ['ai_lit_1', 'ai_lit_2', 'ai_lit_3', 'ai_lit_4', 'ai_lit_5', 'ai_lit_6'];
             $aiValues = [];
             foreach ($aiFields as $field) {
-                $aiValues[$field] = isset($participantPostsurvey[$field]) ? (int) $participantPostsurvey[$field] : null;
+                $aiValues[$field] = int_in_range_or_null($participantPostsurvey[$field] ?? null, 1, 5);
             }
             $hasAllAiValues = true;
             foreach ($aiValues as $value) {
