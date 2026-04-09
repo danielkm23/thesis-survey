@@ -13,6 +13,7 @@ require_once __DIR__ . '/../app/db.php';
  */
 $dashboardSessionKey = 'dashboard_authenticated';
 $expectedPassword = env_or_default('DASHBOARD_PASSWORD', 'DASHBOARD');
+$dashboardCsrfSessionKey = 'dashboard_csrf_token';
 
 if (isset($_GET['logout'])) {
     unset($_SESSION[$dashboardSessionKey]);
@@ -20,7 +21,7 @@ if (isset($_GET['logout'])) {
 }
 
 $authError = null;
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && session_get($dashboardSessionKey) !== true) {
     $providedPassword = (string) ($_POST['dashboard_password'] ?? '');
     if (hash_equals($expectedPassword, $providedPassword)) {
         session_set($dashboardSessionKey, true);
@@ -65,6 +66,14 @@ if (session_get($dashboardSessionKey) !== true) {
     exit;
 }
 
+if (session_get($dashboardCsrfSessionKey) === null) {
+    session_set($dashboardCsrfSessionKey, bin2hex(random_bytes(16)));
+}
+$dashboardCsrfToken = (string) session_get($dashboardCsrfSessionKey, '');
+$flashSuccess = (string) ($_SESSION['dashboard_flash_success'] ?? '');
+$flashError = (string) ($_SESSION['dashboard_flash_error'] ?? '');
+unset($_SESSION['dashboard_flash_success'], $_SESSION['dashboard_flash_error']);
+
 /**
  * Convert UTC datetime strings to Europe/Amsterdam for dashboard display.
  * Storage remains unchanged in the database.
@@ -105,9 +114,223 @@ function int_in_range_or_null(mixed $value, int $min, int $max): ?int
     return (int) $validated;
 }
 
+function ensure_dashboard_trash_table(PDO $pdo): void
+{
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS dashboard_trash (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            entity_type VARCHAR(50) NOT NULL,
+            source_table VARCHAR(64) NOT NULL,
+            source_id INT UNSIGNED NULL,
+            payload_json LONGTEXT NOT NULL,
+            created_at DATETIME NOT NULL,
+            deleted_at DATETIME NOT NULL,
+            INDEX idx_dashboard_trash_deleted_at (deleted_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
+function insert_row_with_values(PDO $pdo, string $table, array $row): void
+{
+    if ($row === []) {
+        return;
+    }
+    $columns = array_keys($row);
+    $quotedColumns = array_map(
+        static fn (string $column): string => '`' . str_replace('`', '``', $column) . '`',
+        $columns
+    );
+    $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+    $sql = 'INSERT INTO ' . $table . ' (' . implode(', ', $quotedColumns) . ') VALUES (' . $placeholders . ')';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(array_values($row));
+}
+
+function normalize_int_id_list(mixed $value): array
+{
+    if (!is_array($value)) {
+        return [];
+    }
+    $ids = [];
+    foreach ($value as $rawId) {
+        $id = filter_var($rawId, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($id !== false && $id !== null) {
+            $ids[] = (int) $id;
+        }
+    }
+    return array_values(array_unique($ids));
+}
+
+function move_row_to_trash(
+    PDO $pdo,
+    string $deleteTable,
+    int $deleteRowId,
+    array $allowedDataTables,
+    string $deletedAt
+): int {
+    if (!in_array($deleteTable, $allowedDataTables, true)) {
+        throw new RuntimeException('Invalid delete table.');
+    }
+
+    if ($deleteTable === 'participants') {
+        $participantStmt = $pdo->prepare('SELECT * FROM participants WHERE id = :id LIMIT 1');
+        $participantStmt->execute([':id' => $deleteRowId]);
+        $participantRow = $participantStmt->fetch();
+        if (!$participantRow) {
+            throw new RuntimeException('Participant not found.');
+        }
+        $taskRowsStmt = $pdo->prepare('SELECT * FROM task_responses WHERE participant_id = :participant_id ORDER BY id ASC');
+        $taskRowsStmt->execute([':participant_id' => $deleteRowId]);
+        $taskRows = $taskRowsStmt->fetchAll();
+
+        $eventRowsStmt = $pdo->prepare('SELECT * FROM document_events WHERE participant_id = :participant_id ORDER BY id ASC');
+        $eventRowsStmt->execute([':participant_id' => $deleteRowId]);
+        $eventRows = $eventRowsStmt->fetchAll();
+
+        $postsurveyRowsStmt = $pdo->prepare('SELECT * FROM postsurvey_responses WHERE participant_id = :participant_id ORDER BY id ASC');
+        $postsurveyRowsStmt->execute([':participant_id' => $deleteRowId]);
+        $postsurveyRows = $postsurveyRowsStmt->fetchAll();
+
+        $trashPayload = json_encode([
+            'participant' => $participantRow,
+            'task_responses' => $taskRows,
+            'document_events' => $eventRows,
+            'postsurvey_responses' => $postsurveyRows,
+        ]);
+        if ($trashPayload === false) {
+            throw new RuntimeException('Failed to prepare participant trash payload.');
+        }
+
+        $insertTrashStmt = $pdo->prepare(
+            'INSERT INTO dashboard_trash (entity_type, source_table, source_id, payload_json, created_at, deleted_at)
+                VALUES (:entity_type, :source_table, :source_id, :payload_json, :created_at, :deleted_at)'
+        );
+        $insertTrashStmt->execute([
+            ':entity_type' => 'participant_bundle',
+            ':source_table' => 'participants',
+            ':source_id' => $deleteRowId,
+            ':payload_json' => $trashPayload,
+            ':created_at' => $deletedAt,
+            ':deleted_at' => $deletedAt,
+        ]);
+
+        $deleteDocumentEventsStmt = $pdo->prepare('DELETE FROM document_events WHERE participant_id = :participant_id');
+        $deleteTaskResponsesStmt = $pdo->prepare('DELETE FROM task_responses WHERE participant_id = :participant_id');
+        $deletePostsurveyStmt = $pdo->prepare('DELETE FROM postsurvey_responses WHERE participant_id = :participant_id');
+        $deleteParticipantStmt = $pdo->prepare('DELETE FROM participants WHERE id = :id');
+
+        $deleteDocumentEventsStmt->execute([':participant_id' => $deleteRowId]);
+        $deleteTaskResponsesStmt->execute([':participant_id' => $deleteRowId]);
+        $deletePostsurveyStmt->execute([':participant_id' => $deleteRowId]);
+        $deleteParticipantStmt->execute([':id' => $deleteRowId]);
+        return (int) $deleteParticipantStmt->rowCount();
+    }
+
+    $rowStmt = $pdo->prepare('SELECT * FROM ' . $deleteTable . ' WHERE id = :id LIMIT 1');
+    $rowStmt->execute([':id' => $deleteRowId]);
+    $row = $rowStmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Row not found.');
+    }
+
+    $trashPayload = json_encode([
+        'row' => $row,
+    ]);
+    if ($trashPayload === false) {
+        throw new RuntimeException('Failed to prepare row trash payload.');
+    }
+
+    $insertTrashStmt = $pdo->prepare(
+        'INSERT INTO dashboard_trash (entity_type, source_table, source_id, payload_json, created_at, deleted_at)
+            VALUES (:entity_type, :source_table, :source_id, :payload_json, :created_at, :deleted_at)'
+    );
+    $insertTrashStmt->execute([
+        ':entity_type' => 'single_row',
+        ':source_table' => $deleteTable,
+        ':source_id' => $deleteRowId,
+        ':payload_json' => $trashPayload,
+        ':created_at' => $deletedAt,
+        ':deleted_at' => $deletedAt,
+    ]);
+
+    $deleteStmt = $pdo->prepare('DELETE FROM ' . $deleteTable . ' WHERE id = :id');
+    $deleteStmt->execute([':id' => $deleteRowId]);
+    return (int) $deleteStmt->rowCount();
+}
+
+function restore_trash_item(PDO $pdo, int $trashId, array $allowedDataTables): void
+{
+    $trashStmt = $pdo->prepare('SELECT * FROM dashboard_trash WHERE id = :id LIMIT 1');
+    $trashStmt->execute([':id' => $trashId]);
+    $trashRow = $trashStmt->fetch();
+    if (!$trashRow) {
+        throw new RuntimeException('Trash item not found.');
+    }
+
+    $payload = json_decode((string) $trashRow['payload_json'], true);
+    if (!is_array($payload)) {
+        throw new RuntimeException('Trash payload is invalid.');
+    }
+
+    $entityType = (string) $trashRow['entity_type'];
+    $sourceTable = (string) $trashRow['source_table'];
+    if ($entityType === 'single_row') {
+        if (!in_array($sourceTable, $allowedDataTables, true)) {
+            throw new RuntimeException('Unsupported source table for restore.');
+        }
+        $row = $payload['row'] ?? null;
+        if (!is_array($row) || !isset($row['id'])) {
+            throw new RuntimeException('Row payload missing required fields.');
+        }
+        insert_row_with_values($pdo, $sourceTable, $row);
+    } elseif ($entityType === 'participant_bundle') {
+        $participantRow = $payload['participant'] ?? null;
+        if (!is_array($participantRow) || !isset($participantRow['id'])) {
+            throw new RuntimeException('Participant payload missing required fields.');
+        }
+        insert_row_with_values($pdo, 'participants', $participantRow);
+
+        $taskRows = $payload['task_responses'] ?? [];
+        if (is_array($taskRows)) {
+            foreach ($taskRows as $taskRow) {
+                if (is_array($taskRow) && isset($taskRow['id'])) {
+                    insert_row_with_values($pdo, 'task_responses', $taskRow);
+                }
+            }
+        }
+
+        $eventRows = $payload['document_events'] ?? [];
+        if (is_array($eventRows)) {
+            foreach ($eventRows as $eventRow) {
+                if (is_array($eventRow) && isset($eventRow['id'])) {
+                    insert_row_with_values($pdo, 'document_events', $eventRow);
+                }
+            }
+        }
+
+        $postsurveyRows = $payload['postsurvey_responses'] ?? [];
+        if (is_array($postsurveyRows)) {
+            foreach ($postsurveyRows as $postsurveyRow) {
+                if (is_array($postsurveyRow) && isset($postsurveyRow['id'])) {
+                    insert_row_with_values($pdo, 'postsurvey_responses', $postsurveyRow);
+                }
+            }
+        }
+    } else {
+        throw new RuntimeException('Unsupported trash entity type.');
+    }
+
+    $deleteTrashStmt = $pdo->prepare('DELETE FROM dashboard_trash WHERE id = :id');
+    $deleteTrashStmt->execute([':id' => $trashId]);
+}
+
 $pdo = db();
+$trashRows = [];
+ensure_dashboard_trash_table($pdo);
 $currentTab = (string) ($_GET['tab'] ?? 'overview');
-if (!in_array($currentTab, ['overview', 'data', 'participant'], true)) {
+if (!in_array($currentTab, ['overview', 'data', 'participant', 'trash'], true)) {
     $currentTab = 'overview';
 }
 
@@ -120,6 +343,121 @@ $allowedDataTables = [
 $selectedTable = (string) ($_GET['table'] ?? 'participants');
 if (!in_array($selectedTable, $allowedDataTables, true)) {
     $selectedTable = 'participants';
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['dashboard_action'])) {
+    $dashboardAction = (string) ($_POST['dashboard_action'] ?? '');
+    if ($dashboardAction === 'delete_row' || $dashboardAction === 'bulk_move_to_trash') {
+        $submittedCsrfToken = (string) ($_POST['csrf_token'] ?? '');
+        if (!hash_equals($dashboardCsrfToken, $submittedCsrfToken)) {
+            $_SESSION['dashboard_flash_error'] = 'Invalid security token. Please refresh and try again.';
+            redirect('/dashboard/?tab=data&table=' . urlencode($selectedTable));
+        }
+
+        $deleteTable = (string) ($_POST['table'] ?? '');
+        $deleteIds = [];
+        if ($dashboardAction === 'delete_row') {
+            $singleId = filter_var($_POST['row_id'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            if ($singleId !== false && $singleId !== null) {
+                $deleteIds[] = (int) $singleId;
+            }
+        } else {
+            $deleteIds = normalize_int_id_list($_POST['selected_row_ids'] ?? []);
+        }
+        $returnUrl = (string) ($_POST['return_url'] ?? '/dashboard/?tab=data');
+        if (!str_starts_with($returnUrl, '/dashboard')) {
+            $returnUrl = '/dashboard/?tab=data';
+        }
+
+        if (!in_array($deleteTable, $allowedDataTables, true) || empty($deleteIds)) {
+            $_SESSION['dashboard_flash_error'] = 'Invalid delete request.';
+            redirect($returnUrl);
+        }
+
+        try {
+            $deletedRows = 0;
+            $pdo->beginTransaction();
+            $deletedAt = date('Y-m-d H:i:s');
+            foreach ($deleteIds as $deleteRowId) {
+                $deletedRows += move_row_to_trash($pdo, $deleteTable, $deleteRowId, $allowedDataTables, $deletedAt);
+            }
+            $pdo->commit();
+
+            if ($deletedRows > 0) {
+                $_SESSION['dashboard_flash_success'] = 'Moved ' . $deletedRows . ' row(s) from ' . $deleteTable . ' to trash.';
+            } else {
+                $_SESSION['dashboard_flash_error'] = 'No row was deleted. It may already be removed.';
+            }
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $_SESSION['dashboard_flash_error'] = 'Delete failed: ' . $e->getMessage();
+        }
+
+        redirect($returnUrl);
+    }
+
+    if (
+        $dashboardAction === 'restore_trash'
+        || $dashboardAction === 'purge_trash'
+        || $dashboardAction === 'bulk_restore_trash'
+        || $dashboardAction === 'bulk_purge_trash'
+    ) {
+        $submittedCsrfToken = (string) ($_POST['csrf_token'] ?? '');
+        if (!hash_equals($dashboardCsrfToken, $submittedCsrfToken)) {
+            $_SESSION['dashboard_flash_error'] = 'Invalid security token. Please refresh and try again.';
+            redirect('/dashboard/?tab=trash');
+        }
+
+        $trashIds = [];
+        if ($dashboardAction === 'restore_trash' || $dashboardAction === 'purge_trash') {
+            $singleTrashId = filter_var($_POST['trash_id'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            if ($singleTrashId !== false && $singleTrashId !== null) {
+                $trashIds[] = (int) $singleTrashId;
+            }
+        } else {
+            $trashIds = normalize_int_id_list($_POST['selected_trash_ids'] ?? []);
+        }
+        if (empty($trashIds)) {
+            $_SESSION['dashboard_flash_error'] = 'Invalid trash item.';
+            redirect('/dashboard/?tab=trash');
+        }
+
+        if ($dashboardAction === 'purge_trash' || $dashboardAction === 'bulk_purge_trash') {
+            $purged = 0;
+            $purgeStmt = $pdo->prepare('DELETE FROM dashboard_trash WHERE id = :id');
+            foreach ($trashIds as $trashId) {
+                $purgeStmt->execute([':id' => $trashId]);
+                $purged += (int) $purgeStmt->rowCount();
+            }
+            $_SESSION['dashboard_flash_success'] = $purged > 0
+                ? 'Permanently deleted ' . $purged . ' trash item(s).'
+                : 'Trash item(s) not found.';
+            redirect('/dashboard/?tab=trash');
+        }
+
+        try {
+            $pdo->beginTransaction();
+            $restored = 0;
+            foreach ($trashIds as $trashId) {
+                restore_trash_item($pdo, $trashId, $allowedDataTables);
+                $restored++;
+            }
+            $pdo->commit();
+            $_SESSION['dashboard_flash_success'] = 'Restored ' . $restored . ' trash item(s) successfully.';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $_SESSION['dashboard_flash_error'] = 'Restore failed: ' . $e->getMessage();
+        }
+        redirect('/dashboard/?tab=trash');
+    }
 }
 
 $dataPage = filter_input(INPUT_GET, 'page', FILTER_VALIDATE_INT, [
@@ -168,6 +506,16 @@ if ($currentTab === 'data') {
     $rowsStmt->bindValue(':offset', $dataOffset, PDO::PARAM_INT);
     $rowsStmt->execute();
     $dataRows = $rowsStmt->fetchAll();
+}
+
+if ($currentTab === 'trash') {
+    $trashStmt = $pdo->query(
+        'SELECT id, entity_type, source_table, source_id, deleted_at
+         FROM dashboard_trash
+         ORDER BY id DESC
+         LIMIT 500'
+    );
+    $trashRows = $trashStmt->fetchAll();
 }
 
 /**
@@ -296,9 +644,16 @@ $participantDerived = [
     'decision_total' => 0,
     'decision_correct_pct' => 0.0,
     'avg_confidence' => 0.0,
+    'correct_total_4tasks' => 0,
+    'correct_rate_4tasks' => 0.0,
+    'avg_docs_opened_4tasks' => 0.0,
+    'avg_inspection_time_4tasks' => 0.0,
+    'relevant_doc_open_rate_4tasks' => 0.0,
+    'doc_clicks_total_4tasks' => 0,
+    'tasks_observed' => 0,
     'ai_literacy_raw' => null,
     'ai_literacy_adjusted' => null,
-    'ai_literacy_max' => 30, // 6 items x 1..5
+    'ai_literacy_max' => 42, // 6 items x 1..7
     'crt_correct_count' => null,
     'crt_total' => 3,
     'crt_score_pct' => null,
@@ -349,6 +704,8 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
         $participantDecisionCorrectCount = 0;
         $participantDecisionTotal = 0;
         $openedKeysByTask = [];
+        $openCountsByTask = [];
+        $viewMsByTask = [];
 
         foreach ($participantEventRows as $eventRow) {
             $eventType = (string) $eventRow['event_type'];
@@ -360,24 +717,43 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
                     $openedKeysByTask[$taskNumber] = [];
                 }
                 $openedKeysByTask[$taskNumber][$documentKey] = true;
+                if (!isset($openCountsByTask[$taskNumber])) {
+                    $openCountsByTask[$taskNumber] = 0;
+                }
+                $openCountsByTask[$taskNumber]++;
             }
             if ($eventType === 'close') {
                 $closeEvents++;
                 if ($eventRow['view_ms'] !== null) {
-                    $viewMsSum += (int) $eventRow['view_ms'];
+                    $viewMs = (int) $eventRow['view_ms'];
+                    $viewMsSum += $viewMs;
                     $viewMsCount++;
+                    if (!isset($viewMsByTask[$taskNumber])) {
+                        $viewMsByTask[$taskNumber] = 0;
+                    }
+                    $viewMsByTask[$taskNumber] += $viewMs;
                 }
             }
         }
 
+        $docsOpenedSum = 0.0;
+        $inspectionSecondsSum = 0.0;
+        $docClicksSum = 0;
+
         foreach ($participantTaskRows as $taskRow) {
             $taskNumber = (int) $taskRow['task_number'];
+            $uniqueDocsOpened = count($openedKeysByTask[$taskNumber] ?? []);
+            $inspectionSecondsTotal = ((float) ($viewMsByTask[$taskNumber] ?? 0)) / 1000.0;
+            $docClicksTotal = (int) ($openCountsByTask[$taskNumber] ?? 0);
+            $relevantDocOpenedValue = null;
             if (!isset($relevantDocumentByTask[$taskNumber])) {
                 // Continue with correctness/confidence derivation even if relevant doc unknown.
             } else {
                 $relevantTaskOpportunities++;
                 $relevantKey = $relevantDocumentByTask[$taskNumber];
-                if (isset($openedKeysByTask[$taskNumber][$relevantKey])) {
+                $hasOpenedRelevant = isset($openedKeysByTask[$taskNumber][$relevantKey]);
+                $relevantDocOpenedValue = $hasOpenedRelevant;
+                if ($hasOpenedRelevant) {
                     $openedRelevantTasks++;
                 }
             }
@@ -394,8 +770,17 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
 
             $participantConfidenceSum += (float) ((int) $taskRow['confidence']);
             $participantConfidenceCount++;
+            $docsOpenedSum += $uniqueDocsOpened;
+            $inspectionSecondsSum += $inspectionSecondsTotal;
+            $docClicksSum += $docClicksTotal;
 
             $taskRow['_decision_correct'] = $isCorrectDecision ? 'Yes' : 'No';
+            $taskRow['_docs_opened_unique'] = $uniqueDocsOpened;
+            $taskRow['_inspection_time_total_seconds'] = $inspectionSecondsTotal;
+            $taskRow['_doc_clicks_total'] = $docClicksTotal;
+            $taskRow['_relevant_doc_opened'] = $relevantDocOpenedValue === null
+                ? 'N/A'
+                : ($relevantDocOpenedValue ? 'Yes' : 'No');
             $participantTaskRowsDetailed[] = $taskRow;
         }
 
@@ -413,8 +798,23 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
         $participantDerived['decision_correct_pct'] = $participantDecisionTotal > 0
             ? ($participantDecisionCorrectCount / $participantDecisionTotal) * 100.0
             : 0.0;
+        $participantDerived['correct_total_4tasks'] = $participantDecisionCorrectCount;
+        $participantDerived['correct_rate_4tasks'] = $participantDecisionTotal > 0
+            ? $participantDecisionCorrectCount / $participantDecisionTotal
+            : 0.0;
         $participantDerived['avg_confidence'] = $participantConfidenceCount > 0
             ? ($participantConfidenceSum / $participantConfidenceCount)
+            : 0.0;
+        $participantDerived['tasks_observed'] = $participantDecisionTotal;
+        $participantDerived['avg_docs_opened_4tasks'] = $participantDecisionTotal > 0
+            ? ($docsOpenedSum / $participantDecisionTotal)
+            : 0.0;
+        $participantDerived['avg_inspection_time_4tasks'] = $participantDecisionTotal > 0
+            ? ($inspectionSecondsSum / $participantDecisionTotal)
+            : 0.0;
+        $participantDerived['doc_clicks_total_4tasks'] = $docClicksSum;
+        $participantDerived['relevant_doc_open_rate_4tasks'] = $relevantTaskOpportunities > 0
+            ? ($openedRelevantTasks / $relevantTaskOpportunities)
             : 0.0;
 
         if ($participantPostsurvey !== null) {
@@ -603,6 +1003,12 @@ require __DIR__ . '/../views/header.php';
             >
                 Full Data
             </a>
+            <a
+                href="/dashboard/?tab=trash"
+                class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'trash' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
+            >
+                Trash
+            </a>
             <?php if ($currentTab === 'participant' && $participantDetailId !== false && $participantDetailId !== null): ?>
                 <a
                     href="/dashboard/?tab=participant&participant_id=<?= e((string) $participantDetailId) ?>"
@@ -613,6 +1019,17 @@ require __DIR__ . '/../views/header.php';
             <?php endif; ?>
         </div>
     </section>
+
+    <?php if ($flashSuccess !== ''): ?>
+        <section class="mb-4">
+            <p class="text-sm text-emerald-700"><?= e($flashSuccess) ?></p>
+        </section>
+    <?php endif; ?>
+    <?php if ($flashError !== ''): ?>
+        <section class="mb-4">
+            <p class="text-sm text-rose-700"><?= e($flashError) ?></p>
+        </section>
+    <?php endif; ?>
 
     <?php if ($currentTab === 'overview'): ?>
         <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
@@ -723,12 +1140,41 @@ require __DIR__ . '/../views/header.php';
             <p class="text-xs text-slate-500 mt-1">
                 Datetime columns are displayed in Europe/Amsterdam (converted from UTC).
             </p>
+            <?php if (in_array('id', $dataColumns, true) && !empty($dataRows)): ?>
+                <?php
+                $bulkReturnUrl = '/dashboard/?tab=data&table=' . urlencode($selectedTable)
+                    . '&sort=' . urlencode($sortColumn)
+                    . '&dir=' . urlencode($sortDirection)
+                    . '&page=' . urlencode((string) $dataPage);
+                ?>
+                <form id="bulk-data-form" method="post" action="/dashboard/" class="mt-4 flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="dashboard_action" value="bulk_move_to_trash">
+                    <input type="hidden" name="csrf_token" value="<?= e($dashboardCsrfToken) ?>">
+                    <input type="hidden" name="table" value="<?= e($selectedTable) ?>">
+                    <input type="hidden" name="return_url" value="<?= e($bulkReturnUrl) ?>">
+                    <button
+                        id="bulk-data-submit"
+                        type="submit"
+                        class="text-sm bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-2 rounded border border-rose-200"
+                        onclick="return confirm('Move selected rows to trash?');"
+                    >
+                        Move Selected to Trash
+                    </button>
+                    <span class="text-xs text-slate-500">Use the checkboxes in the first column.</span>
+                    <span class="text-xs text-slate-500">Selected: <span id="data-selected-count">0</span></span>
+                </form>
+            <?php endif; ?>
         </section>
 
         <section class="bg-white shadow rounded-xl p-6 overflow-x-auto">
             <table class="min-w-full text-sm">
                 <thead>
                     <tr class="border-b border-slate-200 text-slate-600">
+                        <?php if (in_array('id', $dataColumns, true)): ?>
+                            <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap">
+                                <input type="checkbox" id="select-all-data" title="Select all rows on this page">
+                            </th>
+                        <?php endif; ?>
                         <?php foreach ($dataColumns as $column): ?>
                             <?php
                             $nextDirection = ($sortColumn === $column && $sortDirection === 'asc') ? 'desc' : 'asc';
@@ -744,16 +1190,33 @@ require __DIR__ . '/../views/header.php';
                                 </a>
                             </th>
                         <?php endforeach; ?>
+                        <?php if (in_array('id', $dataColumns, true)): ?>
+                            <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap">actions</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($dataRows)): ?>
                         <tr>
-                            <td class="py-3 text-slate-500" colspan="<?= e((string) max(1, count($dataColumns))) ?>">No data found.</td>
+                            <td class="py-3 text-slate-500" colspan="<?= e((string) (max(1, count($dataColumns)) + (in_array('id', $dataColumns, true) ? 2 : 0))) ?>">No data found.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($dataRows as $row): ?>
                             <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                <?php if (in_array('id', $dataColumns, true)): ?>
+                                    <td class="py-2 pr-3 text-slate-700 align-top whitespace-nowrap">
+                                        <?php $rowIdForSelect = (string) ($row['id'] ?? ''); ?>
+                                        <?php if ($rowIdForSelect !== ''): ?>
+                                            <input
+                                                type="checkbox"
+                                                name="selected_row_ids[]"
+                                                value="<?= e($rowIdForSelect) ?>"
+                                                form="bulk-data-form"
+                                                class="data-row-checkbox"
+                                            >
+                                        <?php endif; ?>
+                                    </td>
+                                <?php endif; ?>
                                 <?php foreach ($dataColumns as $column): ?>
                                     <?php
                                     $rawValue = (string) ($row[$column] ?? '');
@@ -784,6 +1247,34 @@ require __DIR__ . '/../views/header.php';
                                         <?php endif; ?>
                                     </td>
                                 <?php endforeach; ?>
+                                <?php if (in_array('id', $dataColumns, true)): ?>
+                                    <td class="py-2 pr-3 align-top whitespace-nowrap">
+                                        <?php $rowId = (string) ($row['id'] ?? ''); ?>
+                                        <?php if ($rowId !== ''): ?>
+                                            <?php
+                                            $returnUrl = '/dashboard/?tab=data&table=' . urlencode($selectedTable)
+                                                . '&sort=' . urlencode($sortColumn)
+                                                . '&dir=' . urlencode($sortDirection)
+                                                . '&page=' . urlencode((string) $dataPage);
+                                            ?>
+                                            <form method="post" action="/dashboard/" onsubmit="return confirm('Move this row to trash?');">
+                                                <input type="hidden" name="dashboard_action" value="delete_row">
+                                                <input type="hidden" name="csrf_token" value="<?= e($dashboardCsrfToken) ?>">
+                                                <input type="hidden" name="table" value="<?= e($selectedTable) ?>">
+                                                <input type="hidden" name="row_id" value="<?= e($rowId) ?>">
+                                                <input type="hidden" name="return_url" value="<?= e($returnUrl) ?>">
+                                                <button
+                                                    type="submit"
+                                                    aria-label="Move row to trash"
+                                                    title="Move to trash"
+                                                    class="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 px-2 py-1 rounded border border-rose-200"
+                                                >
+                                                    &#128465;
+                                                </button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </td>
+                                <?php endif; ?>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -824,6 +1315,99 @@ require __DIR__ . '/../views/header.php';
                 Last
             </a>
         </section>
+    <?php elseif ($currentTab === 'trash'): ?>
+        <section class="bg-white shadow rounded-xl p-6 overflow-x-auto">
+            <div class="mb-3">
+                <h2 class="text-lg font-semibold text-slate-800">Trash Bin</h2>
+                <p class="text-sm text-slate-600">Restore recently deleted rows or permanently remove them.</p>
+            </div>
+            <?php if (!empty($trashRows)): ?>
+                <form id="bulk-trash-form" method="post" action="/dashboard/" class="mb-4 flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="csrf_token" value="<?= e($dashboardCsrfToken) ?>">
+                    <select name="dashboard_action" class="rounded border border-slate-300 px-3 py-2 text-sm">
+                        <option value="bulk_restore_trash">Restore selected</option>
+                        <option value="bulk_purge_trash">Delete selected permanently</option>
+                    </select>
+                    <button
+                        id="bulk-trash-submit"
+                        type="submit"
+                        class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded border border-slate-300"
+                        onclick="return confirm('Apply action to selected trash items?');"
+                    >
+                        Apply to Selected
+                    </button>
+                    <span class="text-xs text-slate-500">Use the checkboxes in the first column.</span>
+                    <span class="text-xs text-slate-500">Selected: <span id="trash-selected-count">0</span></span>
+                </form>
+            <?php endif; ?>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 text-slate-600">
+                        <th class="text-left py-2 pr-3 font-semibold">
+                            <input type="checkbox" id="select-all-trash" title="Select all trash items">
+                        </th>
+                        <th class="text-left py-2 pr-3 font-semibold">ID</th>
+                        <th class="text-left py-2 pr-3 font-semibold">Entity type</th>
+                        <th class="text-left py-2 pr-3 font-semibold">Source table</th>
+                        <th class="text-left py-2 pr-3 font-semibold">Source ID</th>
+                        <th class="text-left py-2 pr-3 font-semibold">Deleted at</th>
+                        <th class="text-left py-2 pr-3 font-semibold">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($trashRows)): ?>
+                        <tr>
+                            <td class="py-3 text-slate-500" colspan="7">Trash is empty.</td>
+                        </tr>
+                    <?php else: ?>
+                        <?php foreach ($trashRows as $trashRow): ?>
+                            <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">
+                                    <input
+                                        type="checkbox"
+                                        name="selected_trash_ids[]"
+                                        value="<?= e((string) $trashRow['id']) ?>"
+                                        form="bulk-trash-form"
+                                        class="trash-row-checkbox"
+                                    >
+                                </td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap"><?= e((string) $trashRow['id']) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap"><?= e((string) $trashRow['entity_type']) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap"><?= e((string) $trashRow['source_table']) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap"><?= e((string) ($trashRow['source_id'] ?? '')) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap"><?= e(format_dashboard_datetime((string) $trashRow['deleted_at'])) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">
+                                    <div class="flex items-center gap-2">
+                                        <form method="post" action="/dashboard/" onsubmit="return confirm('Restore this item?');">
+                                            <input type="hidden" name="dashboard_action" value="restore_trash">
+                                            <input type="hidden" name="csrf_token" value="<?= e($dashboardCsrfToken) ?>">
+                                            <input type="hidden" name="trash_id" value="<?= e((string) $trashRow['id']) ?>">
+                                            <button
+                                                type="submit"
+                                                class="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200"
+                                            >
+                                                Restore
+                                            </button>
+                                        </form>
+                                        <form method="post" action="/dashboard/" onsubmit="return confirm('Permanently delete this trash item? This cannot be undone.');">
+                                            <input type="hidden" name="dashboard_action" value="purge_trash">
+                                            <input type="hidden" name="csrf_token" value="<?= e($dashboardCsrfToken) ?>">
+                                            <input type="hidden" name="trash_id" value="<?= e((string) $trashRow['id']) ?>">
+                                            <button
+                                                type="submit"
+                                                class="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 px-2 py-1 rounded border border-rose-200"
+                                            >
+                                                Delete Permanently
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </section>
     <?php else: ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4">
             <div class="flex items-center justify-between gap-3">
@@ -853,26 +1437,36 @@ require __DIR__ . '/../views/header.php';
                     <p class="text-2xl font-bold text-slate-800 mt-1"><?= e((string) $participantDetail['condition_name']) ?></p>
                 </article>
                 <article class="bg-white shadow rounded-xl p-5">
-                    <p class="text-sm text-slate-500">Documents opened</p>
-                    <p class="text-2xl font-bold text-slate-800 mt-1"><?= e((string) $participantDocSummary['open_events']) ?></p>
-                    <p class="text-xs text-slate-500 mt-1">Close events: <?= e((string) $participantDocSummary['close_events']) ?></p>
+                    <p class="text-sm text-slate-500">Avg docs opened / task</p>
+                    <p class="text-2xl font-bold text-slate-800 mt-1"><?= e(number_format($participantDerived['avg_docs_opened_4tasks'], 2)) ?></p>
+                    <p class="text-xs text-slate-500 mt-1">Total opens (clicks): <?= e((string) $participantDerived['doc_clicks_total_4tasks']) ?></p>
                 </article>
                 <article class="bg-white shadow rounded-xl p-5">
-                    <p class="text-sm text-slate-500">Relevant doc opened</p>
-                    <p class="text-2xl font-bold text-slate-800 mt-1"><?= e(number_format($participantDocSummary['opened_relevant_pct'], 1)) ?>%</p>
-                    <p class="text-xs text-slate-500 mt-1">Avg inspect: <?= e(number_format($participantDocSummary['avg_view_seconds'], 2)) ?>s</p>
+                    <p class="text-sm text-slate-500">Relevant doc open rate</p>
+                    <p class="text-2xl font-bold text-slate-800 mt-1"><?= e(number_format($participantDerived['relevant_doc_open_rate_4tasks'] * 100.0, 1)) ?>%</p>
+                    <p class="text-xs text-slate-500 mt-1">Across tasks with known relevant docs</p>
                 </article>
                 <article class="bg-white shadow rounded-xl p-5">
-                    <p class="text-sm text-slate-500">Decision correctness</p>
-                    <p class="text-2xl font-bold text-slate-800 mt-1"><?= e(number_format($participantDerived['decision_correct_pct'], 1)) ?>%</p>
+                    <p class="text-sm text-slate-500">Correct total (0-4)</p>
+                    <p class="text-2xl font-bold text-slate-800 mt-1"><?= e((string) $participantDerived['correct_total_4tasks']) ?></p>
                     <p class="text-xs text-slate-500 mt-1">
                         <?= e((string) $participantDerived['decision_correct_count']) ?> / <?= e((string) $participantDerived['decision_total']) ?> tasks
                     </p>
                 </article>
                 <article class="bg-white shadow rounded-xl p-5">
-                    <p class="text-sm text-slate-500">Avg confidence</p>
+                    <p class="text-sm text-slate-500">Correct rate (0-1)</p>
+                    <p class="text-2xl font-bold text-slate-800 mt-1"><?= e(number_format($participantDerived['correct_rate_4tasks'], 2)) ?></p>
+                    <p class="text-xs text-slate-500 mt-1">Decision correctness across submitted tasks</p>
+                </article>
+                <article class="bg-white shadow rounded-xl p-5">
+                    <p class="text-sm text-slate-500">Avg confidence / task</p>
                     <p class="text-2xl font-bold text-slate-800 mt-1"><?= e(number_format($participantDerived['avg_confidence'], 2)) ?></p>
                     <p class="text-xs text-slate-500 mt-1">Task confidence (1-5)</p>
+                </article>
+                <article class="bg-white shadow rounded-xl p-5">
+                    <p class="text-sm text-slate-500">Avg inspect time / task</p>
+                    <p class="text-2xl font-bold text-slate-800 mt-1"><?= e(number_format($participantDerived['avg_inspection_time_4tasks'], 2)) ?>s</p>
+                    <p class="text-xs text-slate-500 mt-1">Total inspection time across docs per task</p>
                 </article>
                 <article class="bg-white shadow rounded-xl p-5">
                     <p class="text-sm text-slate-500">AI literacy score</p>
@@ -943,6 +1537,10 @@ require __DIR__ . '/../views/header.php';
                             <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">reliance_choice</th>
                             <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">decision_correct</th>
                             <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">confidence</th>
+                            <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">docs_opened_unique</th>
+                            <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">inspection_time_total_s</th>
+                            <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">relevant_doc_opened</th>
+                            <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">doc_clicks_total</th>
                             <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">verification_intention</th>
                             <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">duration_seconds</th>
                             <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3">short_time_flag</th>
@@ -952,7 +1550,7 @@ require __DIR__ . '/../views/header.php';
                     </thead>
                     <tbody>
                         <?php if (empty($participantTaskRowsDetailed)): ?>
-                            <tr><td class="py-3 text-slate-500" colspan="10">No task responses found.</td></tr>
+                            <tr><td class="py-3 text-slate-500" colspan="14">No task responses found.</td></tr>
                         <?php else: ?>
                             <?php foreach ($participantTaskRowsDetailed as $taskRow): ?>
                                 <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
@@ -963,6 +1561,10 @@ require __DIR__ . '/../views/header.php';
                                         <?= e((string) $taskRow['_decision_correct']) ?>
                                     </td>
                                     <td class="py-2 pr-3"><?= e((string) $taskRow['confidence']) ?></td>
+                                    <td class="py-2 pr-3"><?= e((string) $taskRow['_docs_opened_unique']) ?></td>
+                                    <td class="py-2 pr-3"><?= e(number_format((float) $taskRow['_inspection_time_total_seconds'], 2)) ?></td>
+                                    <td class="py-2 pr-3"><?= e((string) $taskRow['_relevant_doc_opened']) ?></td>
+                                    <td class="py-2 pr-3"><?= e((string) $taskRow['_doc_clicks_total']) ?></td>
                                     <td class="py-2 pr-3"><?= e((string) ($taskRow['verification_intention'] ?? '')) ?></td>
                                     <td class="py-2 pr-3"><?= e((string) ($taskRow['duration_seconds'] ?? '')) ?></td>
                                     <td class="py-2 pr-3"><?= e((string) ($taskRow['short_time_flag'] ?? '')) ?></td>
@@ -1038,5 +1640,64 @@ require __DIR__ . '/../views/header.php';
         <?php endif; ?>
     <?php endif; ?>
 </main>
+
+<script>
+(() => {
+    const updateSelectionState = (checkboxSelector, counterId, submitButtonId, selectAllId) => {
+        const checkboxes = Array.from(document.querySelectorAll(checkboxSelector));
+        const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+
+        const counter = document.getElementById(counterId);
+        if (counter) {
+            counter.textContent = String(selectedCount);
+        }
+
+        const submitButton = document.getElementById(submitButtonId);
+        if (submitButton) {
+            submitButton.disabled = selectedCount === 0;
+            submitButton.classList.toggle('opacity-50', selectedCount === 0);
+            submitButton.classList.toggle('cursor-not-allowed', selectedCount === 0);
+        }
+
+        const selectAll = document.getElementById(selectAllId);
+        if (selectAll && checkboxes.length > 0) {
+            const allChecked = checkboxes.every((checkbox) => checkbox.checked);
+            selectAll.checked = allChecked;
+        }
+    };
+
+    const selectAllData = document.getElementById('select-all-data');
+    if (selectAllData) {
+        selectAllData.addEventListener('change', () => {
+            document.querySelectorAll('.data-row-checkbox').forEach((checkbox) => {
+                checkbox.checked = selectAllData.checked;
+            });
+            updateSelectionState('.data-row-checkbox', 'data-selected-count', 'bulk-data-submit', 'select-all-data');
+        });
+    }
+    document.querySelectorAll('.data-row-checkbox').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+            updateSelectionState('.data-row-checkbox', 'data-selected-count', 'bulk-data-submit', 'select-all-data');
+        });
+    });
+    updateSelectionState('.data-row-checkbox', 'data-selected-count', 'bulk-data-submit', 'select-all-data');
+
+    const selectAllTrash = document.getElementById('select-all-trash');
+    if (selectAllTrash) {
+        selectAllTrash.addEventListener('change', () => {
+            document.querySelectorAll('.trash-row-checkbox').forEach((checkbox) => {
+                checkbox.checked = selectAllTrash.checked;
+            });
+            updateSelectionState('.trash-row-checkbox', 'trash-selected-count', 'bulk-trash-submit', 'select-all-trash');
+        });
+    }
+    document.querySelectorAll('.trash-row-checkbox').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+            updateSelectionState('.trash-row-checkbox', 'trash-selected-count', 'bulk-trash-submit', 'select-all-trash');
+        });
+    });
+    updateSelectionState('.trash-row-checkbox', 'trash-selected-count', 'bulk-trash-submit', 'select-all-trash');
+})();
+</script>
 
 <?php require __DIR__ . '/../views/footer.php'; ?>
