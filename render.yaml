@@ -16,3 +16,5 @@ services:
         sync: false
       - key: DB_PASS
         sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false

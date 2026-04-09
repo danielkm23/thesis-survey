@@ -1,5 +1,9 @@
 RewriteEngine On
 
+# Ensure both /dashboard and /dashboard/ resolve reliably.
+RewriteRule ^dashboard$ dashboard/index.php [L]
+RewriteRule ^dashboard/$ dashboard/index.php [L]
+
 # Allow extensionless routes like /dashboard -> /dashboard.php
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d

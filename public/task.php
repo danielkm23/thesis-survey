@@ -302,9 +302,10 @@ require __DIR__ . '/../views/header.php';
                             data-doc-content="<?= e($document['content']) ?>"
                             data-doc-relevant="<?= !empty($document['relevant']) ? '1' : '0' ?>"
                             data-display-order="<?= e((string) $document['display_order']) ?>"
-                            class="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:bg-slate-50"
+                            class="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:bg-slate-50 flex items-center gap-2"
                         >
-                            <?= e($document['display_order'] . '. ' . $document['title']) ?>
+                            <span aria-hidden="true">📄</span>
+                            <span><?= e($document['display_order'] . '. ' . $document['title']) ?></span>
                         </button>
                     <?php endforeach; ?>
                 </div>
