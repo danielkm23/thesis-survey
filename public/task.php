@@ -829,6 +829,7 @@ require __DIR__ . '/../views/header.php';
                 var taskView = <?= json_encode($taskView) ?>;
                 var taskNumber = <?= (int) $task['number'] ?>;
                 var participantId = <?= (int) session_get('participant_id', 0) ?>;
+                var conditionName = <?= json_encode($conditionName) ?>;
                 var isActiveCondition = <?= $isActiveCondition ? 'true' : 'false' ?>;
                 var form = document.getElementById('task-form');
                 var submitButton = document.getElementById('task-submit-button');
