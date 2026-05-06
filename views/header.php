@@ -39,12 +39,12 @@ $title = $pageTitle ?? 'MSc Digital Business & Innovation Research Study';
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
     <header class="bg-white border-b border-slate-200">
-        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+        <div class="max-w-7xl mx-auto px-4 py-2 flex items-center gap-2">
             <img
                 src="/assets/vu-logo.png"
                 alt="Vrije Universiteit Amsterdam logo"
-                class="h-10 w-auto"
+                class="h-8 w-auto"
             >
-            <p class="font-semibold accent-text">MSc Digital Business &amp; Innovation Research Study</p>
+            <p class="text-sm font-semibold accent-text">MSc Digital Business &amp; Innovation Research Study</p>
         </div>
     </header>

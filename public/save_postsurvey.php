@@ -79,8 +79,8 @@ $aiLit1 = required_mcq_value('ai_lit_1');
 $aiLit2 = required_mcq_value('ai_lit_2');
 $aiLit3 = required_mcq_value('ai_lit_3');
 $aiLit4 = required_mcq_value('ai_lit_4');
-$aiLit5 = required_mcq_value('ai_lit_5');
-$aiLit6 = required_mcq_value('ai_lit_6');
+$seriousEffort = required_mcq_value('serious_effort');
+$instructionsClarity = required_mcq_value('instructions_clarity');
 $instructionNotice = required_mcq_value('instruction_notice');
 $taskRealism = required_mcq_value('task_realism');
 
@@ -92,12 +92,23 @@ $allowedAiExperience = ['never', 'less_than_monthly', 'few_times_per_month', 'fe
 $allowedGender = ['male', 'female'];
 $allowedEducation = ['secondary_education', 'currently_enrolled_bachelors', 'bachelors', 'masters', 'doctoral_degree', 'prefer_not_to_say'];
 
-$aiExperience = (string) ($_POST['ai_experience'] ?? '');
+$sessionAnswers = session_get('postsurvey_answers', []);
+$aiExperience = (string) ($_POST['ai_experience'] ?? (is_array($sessionAnswers) ? ($sessionAnswers['ai_experience'] ?? '') : ''));
 $gender = (string) ($_POST['gender'] ?? '');
 $education = (string) ($_POST['education'] ?? '');
 $age = filter_input(INPUT_POST, 'age', FILTER_VALIDATE_INT, [
     'options' => ['min_range' => 16, 'max_range' => 100],
 ]);
+
+// Backwards compatibility for legacy DB values (older versions used different labels).
+$aiExperience = strtolower(trim($aiExperience));
+$legacyAiExperienceMap = [
+    'regularly' => 'few_times_per_week',
+    'occasionally' => 'few_times_per_month',
+];
+if (isset($legacyAiExperienceMap[$aiExperience])) {
+    $aiExperience = $legacyAiExperienceMap[$aiExperience];
+}
 
 if (!in_array($aiExperience, $allowedAiExperience, true)) {
     http_response_code(400);
@@ -149,18 +160,30 @@ if ($alreadySubmitted) {
     redirect('thankyou.php');
 }
 
+$hasAiLit5Column = false;
 $hasAiLit6Column = false;
+$hasSeriousEffortColumn = false;
+$hasInstructionsClarityColumn = false;
 $hasInstructionNoticeColumn = false;
 $hasTaskRealismColumn = false;
 try {
+    $aiLit5Check = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'ai_lit_5'");
+    $hasAiLit5Column = $aiLit5Check !== false && $aiLit5Check->fetch() !== false;
     $aiLit6Check = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'ai_lit_6'");
     $hasAiLit6Column = $aiLit6Check !== false && $aiLit6Check->fetch() !== false;
+    $seriousEffortCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'serious_effort'");
+    $hasSeriousEffortColumn = $seriousEffortCheck !== false && $seriousEffortCheck->fetch() !== false;
+    $instructionsClarityCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'instructions_clarity'");
+    $hasInstructionsClarityColumn = $instructionsClarityCheck !== false && $instructionsClarityCheck->fetch() !== false;
     $instructionNoticeCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'instruction_notice'");
     $hasInstructionNoticeColumn = $instructionNoticeCheck !== false && $instructionNoticeCheck->fetch() !== false;
     $taskRealismCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'task_realism'");
     $hasTaskRealismColumn = $taskRealismCheck !== false && $taskRealismCheck->fetch() !== false;
 } catch (Throwable $e) {
+    $hasAiLit5Column = false;
     $hasAiLit6Column = false;
+    $hasSeriousEffortColumn = false;
+    $hasInstructionsClarityColumn = false;
     $hasInstructionNoticeColumn = false;
     $hasTaskRealismColumn = false;
 }
@@ -171,7 +194,6 @@ $columns = [
     'ai_lit_2',
     'ai_lit_3',
     'ai_lit_4',
-    'ai_lit_5',
 ];
 
 $params = [
@@ -180,12 +202,26 @@ $params = [
     ':ai_lit_2' => $aiLit2,
     ':ai_lit_3' => $aiLit3,
     ':ai_lit_4' => $aiLit4,
-    ':ai_lit_5' => $aiLit5,
 ];
+
+if ($hasAiLit5Column) {
+    $columns[] = 'ai_lit_5';
+    $params[':ai_lit_5'] = null;
+}
 
 if ($hasAiLit6Column) {
     $columns[] = 'ai_lit_6';
-    $params[':ai_lit_6'] = $aiLit6;
+    $params[':ai_lit_6'] = null;
+}
+
+if ($hasSeriousEffortColumn) {
+    $columns[] = 'serious_effort';
+    $params[':serious_effort'] = $seriousEffort;
+}
+
+if ($hasInstructionsClarityColumn) {
+    $columns[] = 'instructions_clarity';
+    $params[':instructions_clarity'] = $instructionsClarity;
 }
 
 if ($hasInstructionNoticeColumn) {

@@ -652,8 +652,7 @@ $participantDerived = [
     'doc_clicks_total_4tasks' => 0,
     'tasks_observed' => 0,
     'ai_literacy_raw' => null,
-    'ai_literacy_adjusted' => null,
-    'ai_literacy_max' => 42, // 6 items x 1..7
+    'ai_literacy_max' => 20, // 4 items × 5 (Likert 1–5)
     'crt_correct_count' => null,
     'crt_total' => 3,
     'crt_score_pct' => null,
@@ -818,7 +817,7 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
             : 0.0;
 
         if ($participantPostsurvey !== null) {
-            $aiFields = ['ai_lit_1', 'ai_lit_2', 'ai_lit_3', 'ai_lit_4', 'ai_lit_5', 'ai_lit_6'];
+            $aiFields = ['ai_lit_1', 'ai_lit_2', 'ai_lit_3', 'ai_lit_4'];
             $aiValues = [];
             foreach ($aiFields as $field) {
                 $aiValues[$field] = int_in_range_or_null($participantPostsurvey[$field] ?? null, 1, 5);
@@ -831,16 +830,8 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
                 }
             }
             if ($hasAllAiValues) {
-                $participantDerived['ai_literacy_raw'] = array_sum($aiValues);
-                // Reverse-code item 6 for an "AI critical literacy" direction.
-                $participantDerived['ai_literacy_adjusted'] = (int) (
-                    (int) $aiValues['ai_lit_1']
-                    + (int) $aiValues['ai_lit_2']
-                    + (int) $aiValues['ai_lit_3']
-                    + (int) $aiValues['ai_lit_4']
-                    + (int) $aiValues['ai_lit_5']
-                    + (6 - (int) $aiValues['ai_lit_6'])
-                );
+                $raw = (int) array_sum($aiValues);
+                $participantDerived['ai_literacy_raw'] = $raw;
             }
 
             $crt1 = isset($participantPostsurvey['crt_1']) ? (float) $participantPostsurvey['crt_1'] : null;
@@ -1477,13 +1468,7 @@ require __DIR__ . '/../views/header.php';
                             <?= e((string) $participantDerived['ai_literacy_raw']) ?> / <?= e((string) $participantDerived['ai_literacy_max']) ?>
                         <?php endif; ?>
                     </p>
-                    <p class="text-xs text-slate-500 mt-1">
-                        <?php if ($participantDerived['ai_literacy_adjusted'] === null): ?>
-                            Adjusted: -
-                        <?php else: ?>
-                            Adjusted (item 6 reversed): <?= e((string) $participantDerived['ai_literacy_adjusted']) ?>
-                        <?php endif; ?>
-                    </p>
+                    <p class="text-xs text-slate-500 mt-1">Sum of four items (each 1–5).</p>
                 </article>
                 <article class="bg-white shadow rounded-xl p-5">
                     <p class="text-sm text-slate-500">CRT score</p>

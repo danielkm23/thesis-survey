@@ -40,6 +40,17 @@ function required_numeric_post(string $key): string
     return $raw;
 }
 
+function required_choice_post(string $key, array $allowedValues): string
+{
+    $value = trim((string) ($_POST[$key] ?? ''));
+    if (!in_array($value, $allowedValues, true)) {
+        http_response_code(400);
+        exit('Invalid value for ' . $key . '.');
+    }
+
+    return $value;
+}
+
 function has_required_keys(array $data, array $keys): bool
 {
     foreach ($keys as $key) {
@@ -82,8 +93,8 @@ if ($participantId > 0) {
                 'ai_lit_2',
                 'ai_lit_3',
                 'ai_lit_4',
-                'ai_lit_5',
-                'ai_lit_6',
+                'serious_effort',
+                'instructions_clarity',
                 'instruction_notice',
                 'task_realism',
                 'crt_1',
@@ -107,12 +118,12 @@ if ($participantId > 0) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($step === 'ai') {
+        $allowedAiExperience = ['never', 'less_than_monthly', 'few_times_per_month', 'few_times_per_week', 'daily'];
         $storedAnswers['ai_lit_1'] = required_int_post('ai_lit_1', 1, 5);
         $storedAnswers['ai_lit_2'] = required_int_post('ai_lit_2', 1, 5);
         $storedAnswers['ai_lit_3'] = required_int_post('ai_lit_3', 1, 5);
         $storedAnswers['ai_lit_4'] = required_int_post('ai_lit_4', 1, 5);
-        $storedAnswers['ai_lit_5'] = required_int_post('ai_lit_5', 1, 5);
-        $storedAnswers['ai_lit_6'] = required_int_post('ai_lit_6', 1, 5);
+        $storedAnswers['ai_experience'] = required_choice_post('ai_experience', $allowedAiExperience);
         session_set('postsurvey_answers', $storedAnswers);
         redirect('postsurvey.php?step=crt');
     }
@@ -126,16 +137,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($step === 'instruction_notice') {
-        $storedAnswers['instruction_notice'] = required_int_post('instruction_notice', 1, 5);
+        $storedAnswers['serious_effort'] = required_int_post('serious_effort', 1, 5);
+        $storedAnswers['instructions_clarity'] = required_int_post('instructions_clarity', 1, 5);
         $storedAnswers['task_realism'] = required_int_post('task_realism', 1, 5);
+        $storedAnswers['instruction_notice'] = required_int_post('instruction_notice', 1, 5);
         session_set('postsurvey_answers', $storedAnswers);
         redirect('postsurvey.php?step=demographics');
     }
 }
 
-$requiredAiKeys = ['ai_lit_1', 'ai_lit_2', 'ai_lit_3', 'ai_lit_4', 'ai_lit_5', 'ai_lit_6'];
+$requiredAiKeys = ['ai_lit_1', 'ai_lit_2', 'ai_lit_3', 'ai_lit_4'];
 $requiredCrtKeys = ['crt_1', 'crt_2', 'crt_3'];
-$requiredInstructionNoticeKeys = ['instruction_notice', 'task_realism'];
+$requiredInstructionNoticeKeys = ['serious_effort', 'instructions_clarity', 'task_realism', 'instruction_notice'];
 $hasAiAnswers = has_required_keys($storedAnswers, $requiredAiKeys);
 $hasCrtAnswers = has_required_keys($storedAnswers, $requiredCrtKeys);
 $hasInstructionNoticeAnswer = has_required_keys($storedAnswers, $requiredInstructionNoticeKeys);
@@ -170,8 +183,10 @@ $enabledTaskNumbers = [1, 2]; // Temporary MVP gate (keep in sync with task flow
 $totalTasks = count($enabledTaskNumbers);
 $totalPostSurveyParts = count($stepNumbers);
 $currentStepNumber = $stepNumbers[$step];
-$currentStudyStep = $totalTasks + $currentStepNumber;
-$totalStudySteps = $totalTasks + $totalPostSurveyParts;
+$taskPhasesPerTask = 2; // review + decision
+$totalTaskPhases = $totalTasks * $taskPhasesPerTask;
+$currentStudyStep = $totalTaskPhases + $currentStepNumber;
+$totalStudySteps = $totalTaskPhases + $totalPostSurveyParts;
 $progressPercent = (int) round(($currentStudyStep / max(1, $totalStudySteps)) * 100);
 
 $aiLitItems = [
@@ -185,13 +200,7 @@ $aiLitItems = [
         'question' => 'AI systems may produce information without relying on verified or reliable sources.',
     ],
     4 => [
-        'question' => 'AI-generated responses can reflect biases present in the data used to train the system.',
-    ],
-    5 => [
         'question' => 'Even when an AI response appears clear, it may still be incomplete or uncertain.',
-    ],
-    6 => [
-        'question' => 'I usually accept AI-generated responses without questioning them.',
     ],
 ];
 $likertLabels = [
@@ -202,37 +211,68 @@ $likertLabels = [
     5 => 'Strongly agree',
 ];
 
+$taskEvalItems = [
+    [
+        'field' => 'serious_effort',
+        'text' => 'I answered the tasks carefully and made a serious effort to choose the most accurate response.',
+    ],
+    [
+        'field' => 'instructions_clarity',
+        'text' => 'The instructions and response options were clear.',
+    ],
+    [
+        'field' => 'task_realism',
+        'text' => 'The tasks felt realistic and similar to real workplace situations.',
+    ],
+    [
+        'field' => 'instruction_notice',
+        'text' => 'I noticed messages that encouraged me to review, verify, or check the AI-generated draft before choosing a response.',
+    ],
+];
+
+$surveyCardClass = 'bg-white shadow rounded-xl p-4 sm:p-5';
+$surveyTitleClass = 'text-base sm:text-lg leading-6 font-semibold text-slate-800 mb-3';
+$surveyIntroClass = 'text-sm sm:text-base font-normal text-slate-600 mb-4';
+$surveySectionHeadingClass = 'text-base font-semibold text-slate-800 mb-2';
+$surveyHelperTextClass = 'text-sm text-slate-600 mb-2';
+$surveyFooterCardClass = 'bg-white shadow rounded-xl p-4 sm:p-5';
+$surveyFooterActionsClass = 'flex flex-col sm:flex-row items-stretch sm:items-center gap-3';
+$surveyFooterButtonClass = 'w-full sm:w-auto accent-bg accent-bg-hover text-white font-medium px-5 py-3 rounded-lg transition';
+$surveyBackButtonClass = 'inline-block w-full sm:w-auto text-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium px-5 py-3 rounded-lg transition';
+$surveyAutosaveClass = 'mt-2 text-xs text-slate-500';
+$crtQuestionBlockClass = 'space-y-2.5';
+$crtInputRowClass = 'flex items-center gap-2 w-full max-w-sm';
+$crtUnitLabelClass = 'w-16 shrink-0 text-right text-sm font-medium text-slate-700';
+$crtInputClass = 'h-10 w-full min-w-0 max-w-[14rem] rounded-lg border border-slate-300 px-3 text-sm';
+
 $pageTitle = 'Post-Survey';
 require __DIR__ . '/../views/header.php';
 ?>
 
 <main class="max-w-6xl mx-auto px-4 py-8">
-    <section class="bg-white shadow rounded-xl p-4 mb-4">
-        <div class="flex items-center justify-between mb-2">
-            <p class="text-sm text-slate-500">Step <?= e((string) $currentStudyStep) ?> of <?= e((string) $totalStudySteps) ?></p>
-            <p class="text-sm text-slate-500"><?= e((string) $progressPercent) ?>% complete</p>
-        </div>
-        <div class="w-full h-2 bg-slate-200 rounded">
-            <div class="h-2 accent-bg rounded" style="width: <?= e((string) $progressPercent) ?>%"></div>
+    <section class="mb-3 px-0.5">
+        <p class="text-sm text-slate-700 mb-1.5">Step <?= e((string) $currentStudyStep) ?> of <?= e((string) $totalStudySteps) ?> — <?= e((string) $progressPercent) ?>% complete</p>
+        <div class="w-full h-[6px] bg-slate-200 rounded">
+            <div class="h-[6px] accent-bg rounded" style="width: <?= e((string) $progressPercent) ?>%"></div>
         </div>
     </section>
 
     <?php if ($step === 'ai'): ?>
-        <form id="postsurvey-step-form" method="post" action="postsurvey.php?step=ai" class="space-y-6">
-            <section class="bg-white shadow rounded-xl p-6">
-                <h2 class="text-lg font-semibold text-slate-800 mb-4">Questions about evaluating AI-generated information</h2>
-                <p class="text-sm text-slate-600 mb-4">
+        <form id="postsurvey-step-form" method="post" action="postsurvey.php?step=ai" class="space-y-4">
+            <section class="<?= e($surveyCardClass) ?>">
+                <h2 class="<?= e($surveyTitleClass) ?>">Questions about evaluating AI-generated information</h2>
+                <p class="<?= e($surveyIntroClass) ?>">
                     Please indicate how much you agree or disagree with the following statements about evaluating information generated by AI systems.
                 </p>
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto hidden md:block">
                     <table class="min-w-full border border-slate-200 rounded-lg overflow-hidden">
                         <thead class="bg-slate-50">
                             <tr>
-                                <th class="text-left text-sm font-semibold text-slate-700 px-3 py-2 border-b border-slate-200 w-1/2">
+                                <th class="text-left text-sm font-semibold text-slate-700 px-2 py-1.5 border-b border-slate-200 w-1/2">
                                     Statement
                                 </th>
                                 <?php foreach ($likertLabels as $value => $label): ?>
-                                    <th class="text-center text-xs font-semibold text-slate-700 px-2 py-2 border-b border-slate-200 min-w-[120px]">
+                                    <th class="text-center text-[11px] sm:text-xs leading-snug font-semibold text-slate-700 px-1 py-1.5 border-b border-slate-200 min-w-[4.75rem] sm:min-w-[5.5rem] md:min-w-[6.25rem]">
                                         <?= e($value . ' - ' . $label) ?>
                                     </th>
                                 <?php endforeach; ?>
@@ -240,12 +280,12 @@ require __DIR__ . '/../views/header.php';
                         </thead>
                         <tbody>
                             <?php foreach ($aiLitItems as $index => $item): ?>
-                                <tr class="group border-b border-slate-200 last:border-b-0 hover:bg-slate-50 transition-colors">
-                                    <td class="align-top text-slate-800 text-sm px-3 py-3 break-words">
+                                <tr class="group h-14 border-b border-slate-200 last:border-b-0 hover:bg-slate-50 transition-colors">
+                                    <td class="align-middle text-slate-800 text-sm px-2 py-1.5 break-words">
                                         <?= e($item['question']) ?>
                                     </td>
                                     <?php foreach ($likertLabels as $optionValue => $label): ?>
-                                        <td class="text-center px-2 py-3 group-hover:bg-slate-50 hover:bg-slate-100 transition-colors">
+                                        <td class="text-center px-1 py-1.5 group-hover:bg-slate-50 hover:bg-slate-100 transition-colors align-middle">
                                             <input
                                                 type="radio"
                                                 name="ai_lit_<?= $index ?>"
@@ -262,38 +302,85 @@ require __DIR__ . '/../views/header.php';
                         </tbody>
                     </table>
                 </div>
+                <div class="md:hidden">
+                    <?php foreach ($aiLitItems as $index => $item): ?>
+                        <div class="bg-white rounded-xl border border-slate-200 p-3 mb-2.5 last:mb-0 shadow-sm">
+                            <p class="text-sm text-slate-800 mb-2"><?= e($item['question']) ?></p>
+                            <?php foreach ($likertLabels as $optionValue => $label): ?>
+                                <?php $isChecked = (string) $optionValue === (string) ($storedAnswers['ai_lit_' . $index] ?? ''); ?>
+                                <label class="flex items-center gap-3 p-2.5 rounded-lg border mb-1.5 last:mb-0 text-sm cursor-pointer <?= $isChecked ? 'border-blue-500 bg-blue-50 text-slate-900' : 'border-slate-200 text-slate-700' ?>">
+                                    <input
+                                        type="radio"
+                                        name="ai_lit_<?= $index ?>"
+                                        value="<?= $optionValue ?>"
+                                        required
+                                        class="h-4 w-4 cursor-pointer"
+                                        aria-label="<?= e('Item ' . $index . ', ' . $optionValue . ' - ' . $label) ?>"
+                                        <?= $isChecked ? 'checked' : '' ?>
+                                    >
+                                    <span><?= e($optionValue . ' - ' . $label) ?></span>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+
+                <fieldset class="mt-4">
+                    <legend class="<?= e($surveySectionHeadingClass) ?>">How often do you use AI tools (e.g., ChatGPT, Copilot, Gemini)?</legend>
+                    <div class="space-y-1 text-sm text-slate-700">
+                        <label class="flex items-center gap-2 text-sm">
+                            <input type="radio" name="ai_experience" value="never" required class="h-4 w-4" <?= $prefillAiExperience === 'never' ? 'checked' : '' ?>>
+                            <span>Never</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm">
+                            <input type="radio" name="ai_experience" value="less_than_monthly" required class="h-4 w-4" <?= $prefillAiExperience === 'less_than_monthly' ? 'checked' : '' ?>>
+                            <span>Less than once per month</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm">
+                            <input type="radio" name="ai_experience" value="few_times_per_month" required class="h-4 w-4" <?= $prefillAiExperience === 'few_times_per_month' ? 'checked' : '' ?>>
+                            <span>A few times per month</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm">
+                            <input type="radio" name="ai_experience" value="few_times_per_week" required class="h-4 w-4" <?= $prefillAiExperience === 'few_times_per_week' ? 'checked' : '' ?>>
+                            <span>A few times per week</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm">
+                            <input type="radio" name="ai_experience" value="daily" required class="h-4 w-4" <?= $prefillAiExperience === 'daily' ? 'checked' : '' ?>>
+                            <span>Daily</span>
+                        </label>
+                    </div>
+                </fieldset>
             </section>
 
-            <section class="bg-white shadow rounded-xl p-6">
+            <section class="<?= e($surveyFooterCardClass) ?>">
                 <p id="postsurvey-step-error" class="mb-3 text-sm text-red-600 hidden">Please complete all required fields.</p>
                 <button
                     type="submit"
-                    class="w-full sm:w-auto accent-bg accent-bg-hover text-white font-medium px-5 py-3 rounded-lg transition"
+                    class="<?= e($surveyFooterButtonClass) ?>"
                 >
                     Next →
                 </button>
-                <p id="postsurvey-autosave-status" class="mt-3 text-xs text-slate-500" aria-live="polite">All changes saved</p>
+                <p id="postsurvey-autosave-status" class="<?= e($surveyAutosaveClass) ?>" aria-live="polite">All changes saved</p>
             </section>
         </form>
     <?php elseif ($step === 'crt'): ?>
-        <form id="postsurvey-step-form" method="post" action="postsurvey.php?step=crt" class="space-y-6">
-            <section class="bg-white shadow rounded-xl p-6">
-                <h2 class="text-lg font-semibold text-slate-800 mb-4">Short reasoning questions</h2>
-                <p class="text-sm text-slate-600 mb-4">
+        <form id="postsurvey-step-form" method="post" action="postsurvey.php?step=crt" class="space-y-4">
+            <section class="<?= e($surveyCardClass) ?>">
+                <h2 class="<?= e($surveyTitleClass) ?>">Short reasoning questions</h2>
+                <p class="<?= e($surveyIntroClass) ?>">
                     Please answer the following short reasoning questions.<br>
-                    There are no time limits.<br>
                     Select the answer you believe is correct.
                 </p>
 
-                <div class="space-y-5">
-                    <div>
-                        <label class="block text-slate-800 mb-2">
+                <div class="space-y-4">
+                    <div class="<?= e($crtQuestionBlockClass) ?>">
+                        <label class="block <?= e($surveySectionHeadingClass) ?>">
                             1. A bat and a ball cost EUR 1.10 in total. The bat costs EUR 1 more than the ball.
                             How much does the ball cost?
                         </label>
-                        <p class="text-sm text-slate-600 mb-2">Enter your answer in euros (e.g., 0.05).</p>
-                        <div class="flex items-center gap-2 max-w-xs">
-                            <span class="text-slate-700 font-medium">EUR</span>
+                        <p class="<?= e($surveyHelperTextClass) ?>">Enter your answer in euros (e.g., 0.05).</p>
+                        <div class="<?= e($crtInputRowClass) ?>">
+                            <span class="<?= e($crtUnitLabelClass) ?>">EUR</span>
                             <input
                                 type="text"
                                 inputmode="decimal"
@@ -303,18 +390,19 @@ require __DIR__ . '/../views/header.php';
                                 placeholder="0.00"
                                 title="Use dot format, e.g., 0.05"
                                 value="<?= e((string) ($storedAnswers['crt_1'] ?? '')) ?>"
-                                class="w-full rounded-lg border border-slate-300 px-3 py-2"
+                                class="<?= e($crtInputClass) ?>"
                             >
                         </div>
                     </div>
 
-                    <div>
-                        <label class="block text-slate-800 mb-2">
+                    <div class="<?= e($crtQuestionBlockClass) ?>">
+                        <label class="block <?= e($surveySectionHeadingClass) ?>">
                             2. If it takes 5 machines 5 minutes to make 5 widgets, how long would it take
                             100 machines to make 100 widgets?
                         </label>
-                        <p class="text-sm text-slate-600 mb-2">Enter your answer in whole minutes.</p>
-                        <div class="flex items-center gap-2 max-w-xs">
+                        <p class="<?= e($surveyHelperTextClass) ?>">Enter your answer in whole minutes.</p>
+                        <div class="<?= e($crtInputRowClass) ?>">
+                            <span class="<?= e($crtUnitLabelClass) ?>">minutes</span>
                             <input
                                 type="number"
                                 step="1"
@@ -326,19 +414,19 @@ require __DIR__ . '/../views/header.php';
                                 placeholder="0"
                                 title="Please enter a whole number."
                                 value="<?= e((string) ($storedAnswers['crt_2'] ?? '')) ?>"
-                                class="w-full rounded-lg border border-slate-300 px-3 py-2"
+                                class="<?= e($crtInputClass) ?>"
                             >
-                            <span class="text-slate-700">minutes</span>
                         </div>
                     </div>
 
-                    <div>
-                        <label class="block text-slate-800 mb-2">
+                    <div class="<?= e($crtQuestionBlockClass) ?>">
+                        <label class="block <?= e($surveySectionHeadingClass) ?>">
                             3. In a lake, there is a patch of lily pads. Every day, the patch doubles in size.
                             If it takes 48 days to cover the whole lake, how long would it take to cover half the lake?
                         </label>
-                        <p class="text-sm text-slate-600 mb-2">Enter your answer in whole days.</p>
-                        <div class="flex items-center gap-2 max-w-xs">
+                        <p class="<?= e($surveyHelperTextClass) ?>">Enter your answer in whole days.</p>
+                        <div class="<?= e($crtInputRowClass) ?>">
+                            <span class="<?= e($crtUnitLabelClass) ?>">days</span>
                             <input
                                 type="number"
                                 step="1"
@@ -350,127 +438,130 @@ require __DIR__ . '/../views/header.php';
                                 placeholder="0"
                                 title="Please enter a whole number."
                                 value="<?= e((string) ($storedAnswers['crt_3'] ?? '')) ?>"
-                                class="w-full rounded-lg border border-slate-300 px-3 py-2"
+                                class="<?= e($crtInputClass) ?>"
                             >
-                            <span class="text-slate-700">days</span>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <section class="bg-white shadow rounded-xl p-6">
+            <section class="<?= e($surveyFooterCardClass) ?>">
                 <p id="postsurvey-step-error" class="mb-3 text-sm text-red-600 hidden">Please complete all required fields.</p>
-                <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                <a href="postsurvey.php?step=ai" class="inline-block w-full sm:w-auto text-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium px-5 py-3 rounded-lg transition">
-                    Back
-                </a>
-                <button
-                    type="submit"
-                    class="w-full sm:w-auto accent-bg accent-bg-hover text-white font-medium px-5 py-3 rounded-lg transition"
-                >
-                    Next →
-                </button>
+                <div class="<?= e($surveyFooterActionsClass) ?>">
+                    <a href="postsurvey.php?step=ai" class="<?= e($surveyBackButtonClass) ?>">
+                        Back
+                    </a>
+                    <button
+                        type="submit"
+                        class="<?= e($surveyFooterButtonClass) ?>"
+                    >
+                        Next →
+                    </button>
                 </div>
-                <p id="postsurvey-autosave-status" class="mt-3 text-xs text-slate-500" aria-live="polite">All changes saved</p>
+                <p id="postsurvey-autosave-status" class="<?= e($surveyAutosaveClass) ?>" aria-live="polite">All changes saved</p>
             </section>
         </form>
     <?php elseif ($step === 'instruction_notice'): ?>
-        <form id="postsurvey-step-form" method="post" action="postsurvey.php?step=instruction_notice" class="space-y-6">
-            <section class="bg-white shadow rounded-xl p-6">
-                <h2 class="text-lg font-semibold text-slate-800 mb-4">Task experience</h2>
-                <p class="text-slate-800 mb-4">
-                    I noticed additional instructions or prompts encouraging me to review information during the tasks.
+        <form id="postsurvey-step-form" method="post" action="postsurvey.php?step=instruction_notice" class="space-y-4">
+            <section class="bg-white shadow rounded-xl p-5">
+                <h2 class="text-lg font-semibold text-slate-800 mb-3">Task evaluation</h2>
+                <p class="text-sm text-slate-600 mb-2">
+                    Please indicate how much you agree or disagree with the following statements about the tasks.
                 </p>
-                <p class="text-sm text-slate-600 mb-3">Response scale:</p>
-                <div class="space-y-2 text-slate-700">
-                    <?php foreach ($likertLabels as $optionValue => $label): ?>
-                        <label class="flex items-center gap-2">
-                            <input
-                                type="radio"
-                                name="instruction_notice"
-                                value="<?= $optionValue ?>"
-                                required
-                                class="h-4 w-4"
-                                <?= (string) $optionValue === (string) ($storedAnswers['instruction_notice'] ?? '') ? 'checked' : '' ?>
-                            >
-                            <span><?= e($optionValue . ' - ' . $label) ?></span>
-                        </label>
-                    <?php endforeach; ?>
+                <div class="overflow-x-auto hidden md:block">
+                    <table class="min-w-full border border-slate-200 rounded-lg overflow-hidden">
+                        <thead class="bg-slate-50">
+                            <tr>
+                                <th class="text-left text-sm font-semibold text-slate-700 px-2 py-1.5 border-b border-slate-200 w-1/2">
+                                    Statement
+                                </th>
+                                <?php foreach ($likertLabels as $value => $label): ?>
+                                    <th class="text-center text-[11px] sm:text-xs leading-snug font-semibold text-slate-700 px-1 py-1.5 border-b border-slate-200 min-w-[4.75rem] sm:min-w-[5.5rem] md:min-w-[6.25rem]">
+                                        <?= e($value . ' - ' . $label) ?>
+                                    </th>
+                                <?php endforeach; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($taskEvalItems as $rowIndex => $evalItem): ?>
+                                <?php
+                                $fieldName = $evalItem['field'];
+                                $storedVal = (string) ($storedAnswers[$fieldName] ?? '');
+                                ?>
+                                <tr class="group h-14 border-b border-slate-200 last:border-b-0 hover:bg-slate-50 transition-colors">
+                                    <td class="align-middle text-slate-800 text-sm px-2 py-1.5 break-words">
+                                        <?= e((string) $evalItem['text']) ?>
+                                    </td>
+                                    <?php foreach ($likertLabels as $optionValue => $label): ?>
+                                        <td class="text-center px-1 py-1.5 group-hover:bg-slate-50 hover:bg-slate-100 transition-colors align-middle">
+                                            <input
+                                                type="radio"
+                                                name="<?= e($fieldName) ?>"
+                                                value="<?= $optionValue ?>"
+                                                required
+                                                class="h-4 w-4 cursor-pointer"
+                                                aria-label="<?= e('Task evaluation ' . ($rowIndex + 1) . ', ' . $optionValue . ' - ' . $label) ?>"
+                                                <?= (string) $optionValue === $storedVal ? 'checked' : '' ?>
+                                            >
+                                        </td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-
-                <hr class="my-6 border-slate-200">
-
-                <h3 class="text-base font-semibold text-slate-800 mb-2">Task Realism</h3>
-                <p class="text-slate-800 mb-3">
-                    The tasks felt realistic and similar to real workplace situations.
-                </p>
-                <div class="space-y-2 text-slate-700">
-                    <?php foreach ($likertLabels as $optionValue => $label): ?>
-                        <label class="flex items-center gap-2">
-                            <input
-                                type="radio"
-                                name="task_realism"
-                                value="<?= $optionValue ?>"
-                                required
-                                class="h-4 w-4"
-                                <?= (string) $optionValue === (string) ($storedAnswers['task_realism'] ?? '') ? 'checked' : '' ?>
-                            >
-                            <span><?= e($optionValue . ' - ' . $label) ?></span>
-                        </label>
+                <div class="md:hidden">
+                    <?php foreach ($taskEvalItems as $rowIndex => $evalItem): ?>
+                        <?php
+                        $fieldName = $evalItem['field'];
+                        $storedVal = (string) ($storedAnswers[$fieldName] ?? '');
+                        ?>
+                        <div class="bg-white rounded-xl border border-slate-200 p-3 mb-2.5 last:mb-0 shadow-sm">
+                            <p class="text-sm text-slate-800 mb-2"><?= e((string) $evalItem['text']) ?></p>
+                            <?php foreach ($likertLabels as $optionValue => $label): ?>
+                                <?php $isChecked = (string) $optionValue === $storedVal; ?>
+                                <label class="flex items-center gap-3 p-2.5 rounded-lg border mb-1.5 last:mb-0 text-sm cursor-pointer <?= $isChecked ? 'border-blue-500 bg-blue-50 text-slate-900' : 'border-slate-200 text-slate-700' ?>">
+                                    <input
+                                        type="radio"
+                                        name="<?= e($fieldName) ?>"
+                                        value="<?= $optionValue ?>"
+                                        required
+                                        class="h-4 w-4 cursor-pointer"
+                                        aria-label="<?= e('Task evaluation ' . ($rowIndex + 1) . ', ' . $optionValue . ' - ' . $label) ?>"
+                                        <?= $isChecked ? 'checked' : '' ?>
+                                    >
+                                    <span><?= e($optionValue . ' - ' . $label) ?></span>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
                     <?php endforeach; ?>
                 </div>
             </section>
 
-            <section class="bg-white shadow rounded-xl p-6">
+            <section class="bg-white shadow rounded-xl p-5">
                 <p id="postsurvey-step-error" class="mb-3 text-sm text-red-600 hidden">Please complete all required fields.</p>
                 <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                <a href="postsurvey.php?step=crt" class="inline-block w-full sm:w-auto text-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium px-5 py-3 rounded-lg transition">
-                    Back
-                </a>
-                <button
-                    type="submit"
-                    class="w-full sm:w-auto accent-bg accent-bg-hover text-white font-medium px-5 py-3 rounded-lg transition"
-                >
-                    Next →
-                </button>
+                    <a href="postsurvey.php?step=crt" class="inline-block w-full sm:w-auto text-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium px-5 py-3 rounded-lg transition">
+                        Back
+                    </a>
+                    <button
+                        type="submit"
+                        class="w-full sm:w-auto accent-bg accent-bg-hover text-white font-medium px-5 py-3 rounded-lg transition"
+                    >
+                        Next →
+                    </button>
                 </div>
-                <p id="postsurvey-autosave-status" class="mt-3 text-xs text-slate-500" aria-live="polite">All changes saved</p>
+                <p id="postsurvey-autosave-status" class="mt-2 text-xs text-slate-500" aria-live="polite">All changes saved</p>
             </section>
         </form>
     <?php else: ?>
-        <form id="postsurvey-demographics-form" method="post" action="save_postsurvey.php" class="space-y-6">
-            <section class="bg-white shadow rounded-xl p-6">
-                <h2 class="text-lg font-semibold text-slate-800 mb-4">Demographics</h2>
+        <form id="postsurvey-demographics-form" method="post" action="save_postsurvey.php" class="space-y-4">
+            <section class="bg-white shadow rounded-xl p-5">
+                <h2 class="text-lg font-semibold text-slate-800 mb-3">Demographics</h2>
 
-                <div class="space-y-5">
-                    <fieldset>
-                        <legend class="text-slate-800 mb-2">How often do you use AI tools (e.g., ChatGPT, Copilot, Gemini)?</legend>
-                        <div class="space-y-2 text-slate-700">
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="never" required class="h-4 w-4" <?= $prefillAiExperience === 'never' ? 'checked' : '' ?>>
-                                <span>Never</span>
-                            </label>
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="less_than_monthly" required class="h-4 w-4" <?= $prefillAiExperience === 'less_than_monthly' ? 'checked' : '' ?>>
-                                <span>Less than once per month</span>
-                            </label>
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="few_times_per_month" required class="h-4 w-4" <?= $prefillAiExperience === 'few_times_per_month' ? 'checked' : '' ?>>
-                                <span>A few times per month</span>
-                            </label>
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="few_times_per_week" required class="h-4 w-4" <?= $prefillAiExperience === 'few_times_per_week' ? 'checked' : '' ?>>
-                                <span>A few times per week</span>
-                            </label>
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="ai_experience" value="daily" required class="h-4 w-4" <?= $prefillAiExperience === 'daily' ? 'checked' : '' ?>>
-                                <span>Daily</span>
-                            </label>
-                        </div>
-                    </fieldset>
-
+                <div class="space-y-4">
                     <div>
-                        <label for="age" class="block text-slate-800 mb-2">Age</label>
+                        <label for="age" class="block text-base font-medium text-slate-800 mb-2">Age</label>
                         <input
                             id="age"
                             type="number"
@@ -487,13 +578,13 @@ require __DIR__ . '/../views/header.php';
                     </div>
 
                     <fieldset>
-                        <legend class="text-slate-800 mb-2">Gender</legend>
+                        <legend class="text-base font-medium text-slate-800 mb-2">Gender</legend>
                         <div class="space-y-2 text-slate-700">
-                            <label class="flex items-center gap-2">
+                            <label class="flex items-center gap-2 text-sm">
                                 <input type="radio" name="gender" value="male" required class="h-4 w-4" <?= $prefillGender === 'male' ? 'checked' : '' ?>>
                                 <span>Male</span>
                             </label>
-                            <label class="flex items-center gap-2">
+                            <label class="flex items-center gap-2 text-sm">
                                 <input type="radio" name="gender" value="female" required class="h-4 w-4" <?= $prefillGender === 'female' ? 'checked' : '' ?>>
                                 <span>Female</span>
                             </label>
@@ -501,29 +592,29 @@ require __DIR__ . '/../views/header.php';
                     </fieldset>
 
                     <fieldset>
-                        <legend class="text-slate-800 mb-2">What is the highest level of education you have completed?</legend>
+                        <legend class="text-base font-medium text-slate-800 mb-2">What is the highest level of education you have completed?</legend>
                         <div class="space-y-2 text-slate-700">
-                            <label class="flex items-center gap-2">
+                            <label class="flex items-center gap-2 text-sm">
                                 <input type="radio" name="education" value="secondary_education" required class="h-4 w-4" <?= $prefillEducation === 'secondary_education' ? 'checked' : '' ?>>
                                 <span>Secondary education (e.g., high school or equivalent)</span>
                             </label>
-                            <label class="flex items-center gap-2">
+                            <label class="flex items-center gap-2 text-sm">
                                 <input type="radio" name="education" value="currently_enrolled_bachelors" required class="h-4 w-4" <?= $prefillEducation === 'currently_enrolled_bachelors' ? 'checked' : '' ?>>
                                 <span>Currently enrolled in a Bachelor's program</span>
                             </label>
-                            <label class="flex items-center gap-2">
+                            <label class="flex items-center gap-2 text-sm">
                                 <input type="radio" name="education" value="bachelors" required class="h-4 w-4" <?= $prefillEducation === 'bachelors' ? 'checked' : '' ?>>
                                 <span>Bachelor's degree</span>
                             </label>
-                            <label class="flex items-center gap-2">
+                            <label class="flex items-center gap-2 text-sm">
                                 <input type="radio" name="education" value="masters" required class="h-4 w-4" <?= $prefillEducation === 'masters' ? 'checked' : '' ?>>
                                 <span>Master's degree</span>
                             </label>
-                            <label class="flex items-center gap-2">
+                            <label class="flex items-center gap-2 text-sm">
                                 <input type="radio" name="education" value="doctoral_degree" required class="h-4 w-4" <?= $prefillEducation === 'doctoral_degree' ? 'checked' : '' ?>>
                                 <span>Doctoral degree (PhD or equivalent)</span>
                             </label>
-                            <label class="flex items-center gap-2">
+                            <label class="flex items-center gap-2 text-sm">
                                 <input type="radio" name="education" value="prefer_not_to_say" required class="h-4 w-4" <?= $prefillEducation === 'prefer_not_to_say' ? 'checked' : '' ?>>
                                 <span>Prefer not to say</span>
                             </label>
@@ -532,7 +623,7 @@ require __DIR__ . '/../views/header.php';
                 </div>
             </section>
 
-            <section class="bg-white shadow rounded-xl p-6">
+            <section class="bg-white shadow rounded-xl p-5">
                 <p id="postsurvey-error" class="mb-4 text-sm text-red-600 hidden">
                     Please complete all required fields before submitting.
                 </p>
@@ -548,7 +639,7 @@ require __DIR__ . '/../views/header.php';
                         Submit Post-Survey
                     </button>
                 </div>
-                <p id="postsurvey-autosave-status" class="mt-3 text-xs text-slate-500" aria-live="polite">All changes saved</p>
+                <p id="postsurvey-autosave-status" class="mt-2 text-xs text-slate-500" aria-live="polite">All changes saved</p>
             </section>
         </form>
     <?php endif; ?>
@@ -557,6 +648,7 @@ require __DIR__ . '/../views/header.php';
 <script>
     (function () {
         var step = <?= json_encode($step, JSON_UNESCAPED_SLASHES) ?>;
+        var participantId = <?= (int) session_get('participant_id', 0) ?>;
         var stepForm = document.getElementById('postsurvey-step-form');
         var form = document.getElementById('postsurvey-demographics-form');
         var ageInput = document.getElementById('age');
@@ -572,12 +664,13 @@ require __DIR__ . '/../views/header.php';
             return;
         }
 
-        var draftKey = 'thesis_postsurvey_draft_' + step;
+        var draftPrefix = 'thesis_postsurvey_draft_' + String(participantId) + '_';
+        var draftKey = draftPrefix + step;
         var allDraftKeys = [
-            'thesis_postsurvey_draft_ai',
-            'thesis_postsurvey_draft_crt',
-            'thesis_postsurvey_draft_instruction_notice',
-            'thesis_postsurvey_draft_demographics'
+            draftPrefix + 'ai',
+            draftPrefix + 'crt',
+            draftPrefix + 'instruction_notice',
+            draftPrefix + 'demographics'
         ];
 
         function setAutosaveStatus(message) {
