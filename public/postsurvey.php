@@ -378,7 +378,7 @@ require __DIR__ . '/../views/header.php';
                             1. A bat and a ball cost EUR 1.10 in total. The bat costs EUR 1 more than the ball.
                             How much does the ball cost?
                         </label>
-                        <p class="<?= e($surveyHelperTextClass) ?>">Enter your answer in euros (e.g., 0.05).</p>
+                        <p class="<?= e($surveyHelperTextClass) ?>">Enter your answer in euros.</p>
                         <div class="<?= e($crtInputRowClass) ?>">
                             <span class="<?= e($crtUnitLabelClass) ?>">EUR</span>
                             <input
