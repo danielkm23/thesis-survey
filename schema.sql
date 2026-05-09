@@ -39,7 +39,6 @@ CREATE TABLE task_responses (
     response_option_order JSON NULL,
     response_correctness TINYINT(1) NULL,
     manual_code_required TINYINT(1) NOT NULL DEFAULT 0,
-    decision_justification TEXT NULL,
     custom_response_text TEXT NULL,
     active_reflection TEXT NULL,
     verification_intention VARCHAR(60) NULL,
@@ -65,8 +64,6 @@ CREATE TABLE postsurvey_responses (
     ai_lit_2 TINYINT UNSIGNED NOT NULL,
     ai_lit_3 TINYINT UNSIGNED NOT NULL,
     ai_lit_4 TINYINT UNSIGNED NOT NULL,
-    ai_lit_5 TINYINT UNSIGNED NULL,
-    ai_lit_6 TINYINT UNSIGNED NULL,
     serious_effort TINYINT UNSIGNED NOT NULL,
     instructions_clarity TINYINT UNSIGNED NOT NULL,
     instruction_notice TINYINT UNSIGNED NOT NULL,
@@ -84,5 +81,16 @@ CREATE TABLE postsurvey_responses (
     INDEX idx_postsurvey_participant (participant_id),
     UNIQUE KEY uniq_postsurvey_participant (participant_id),
     CONSTRAINT fk_postsurvey_participant
+        FOREIGN KEY (participant_id) REFERENCES participants(id)
+);
+
+CREATE TABLE raffle_entries (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    participant_id INT UNSIGNED NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NULL,
+    INDEX idx_raffle_entries_email (email),
+    CONSTRAINT fk_raffle_entries_participant
         FOREIGN KEY (participant_id) REFERENCES participants(id)
 );

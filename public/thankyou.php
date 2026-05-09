@@ -25,31 +25,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             $raffleError = 'Please provide a valid email address.';
         } else {
-            $pdo = db();
-            $pdo->exec(
-                'CREATE TABLE IF NOT EXISTS raffle_entries (
-                    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                    participant_id INT UNSIGNED NOT NULL UNIQUE,
-                    email VARCHAR(255) NOT NULL,
-                    created_at DATETIME NOT NULL,
-                    updated_at DATETIME NULL,
-                    INDEX idx_raffle_entries_email (email)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
-            );
-            $now = date('Y-m-d H:i:s');
-            $stmt = $pdo->prepare(
-                'INSERT INTO raffle_entries (participant_id, email, created_at, updated_at)
-                 VALUES (:participant_id, :email, :created_at, NULL)
-                 ON DUPLICATE KEY UPDATE email = VALUES(email), updated_at = :updated_at'
-            );
-            $stmt->execute([
-                ':participant_id' => $participantId,
-                ':email' => $email,
-                ':created_at' => $now,
-                ':updated_at' => $now,
-            ]);
-            session_set('raffle_entry_status', 'entered');
-            $raffleStatus = 'entered';
+            try {
+                $pdo = db();
+                $pdo->exec(
+                    'CREATE TABLE IF NOT EXISTS raffle_entries (
+                        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                        participant_id INT UNSIGNED NOT NULL UNIQUE,
+                        email VARCHAR(255) NOT NULL,
+                        created_at DATETIME NOT NULL,
+                        updated_at DATETIME NULL,
+                        INDEX idx_raffle_entries_email (email)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+                );
+                $now = date('Y-m-d H:i:s');
+                $stmt = $pdo->prepare(
+                    'INSERT INTO raffle_entries (participant_id, email, created_at, updated_at)
+                     VALUES (:participant_id, :email, :created_at, NULL)
+                     ON DUPLICATE KEY UPDATE email = VALUES(email), updated_at = :updated_at'
+                );
+                $stmt->execute([
+                    ':participant_id' => $participantId,
+                    ':email' => $email,
+                    ':created_at' => $now,
+                    ':updated_at' => $now,
+                ]);
+                session_set('raffle_entry_status', 'entered');
+                $raffleStatus = 'entered';
+            } catch (Throwable $e) {
+                $raffleError = 'We could not save your raffle entry right now. Please try again.';
+            }
         }
     }
 }

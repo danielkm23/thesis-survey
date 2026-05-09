@@ -99,8 +99,6 @@ CREATE TABLE `postsurvey_responses` (
   `ai_lit_2` tinyint unsigned NOT NULL,
   `ai_lit_3` tinyint unsigned NOT NULL,
   `ai_lit_4` tinyint unsigned NOT NULL,
-  `ai_lit_5` tinyint unsigned DEFAULT NULL,
-  `ai_lit_6` tinyint unsigned DEFAULT NULL,
   `serious_effort` tinyint unsigned NOT NULL,
   `instructions_clarity` tinyint unsigned NOT NULL,
   `instruction_notice` tinyint unsigned NOT NULL,
@@ -131,6 +129,26 @@ LOCK TABLES `postsurvey_responses` WRITE;
 INSERT INTO `postsurvey_responses` VALUES (1,1,5,4,5,3,7,0.03,67.00,76.00,'regularly',21,'male','high_school','2026-04-08 18:14:57',NULL,0),(2,1,2,7,7,7,7,12.00,234.00,234.00,'never',24,'male','bachelors','2026-04-08 18:21:56',NULL,0),(3,1,5,3,3,5,3,2.00,3.00,3.99,'regularly',24,'male','high_school','2026-04-08 18:24:54',NULL,0),(4,4,6,3,4,4,5,2.00,2.00,2.00,'regularly',23,'male','phd','2026-04-08 18:27:49',NULL,0),(5,11,7,7,3,4,3,2.00,3.00,4.00,'never',24,'non_binary','bachelors','2026-04-08 18:55:27',NULL,0),(6,15,7,6,5,6,5,34.00,34.00,34.00,'occasionally',34,'male','bachelors','2026-04-08 19:07:08',NULL,0),(7,16,6,5,6,1,3,3.00,5.00,6.00,'occasionally',23,'female','masters','2026-04-08 19:10:59',NULL,0),(8,1,7,7,7,7,7,5.00,6.00,6.98,'regularly',20,'female','bachelors','2026-04-08 19:22:59',NULL,0),(9,1,7,4,6,6,4,2.00,3.00,3.98,'daily',45,'female','masters','2026-04-08 19:31:34',NULL,0),(10,18,3,4,5,3,5,6.00,4.00,5.00,'occasionally',23,'female','masters','2026-04-08 19:34:05',15,1);
 /*!40000 ALTER TABLE `postsurvey_responses` ENABLE KEYS */;
 UNLOCK TABLES;
+
+--
+-- Table structure for table `raffle_entries`
+--
+
+DROP TABLE IF EXISTS `raffle_entries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `raffle_entries` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `participant_id` int unsigned NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_raffle_entries_participant` (`participant_id`),
+  KEY `idx_raffle_entries_email` (`email`),
+  CONSTRAINT `fk_raffle_entries_participant` FOREIGN KEY (`participant_id`) REFERENCES `participants` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `task_responses`

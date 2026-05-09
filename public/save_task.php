@@ -231,7 +231,6 @@ $hasRelevantDocumentOpenedColumn = false;
 $hasNumberDocumentsOpenedColumn = false;
 $hasTotalDocumentViewTimeMsColumn = false;
 $hasRelevantDocumentViewTimeMsColumn = false;
-$hasDecisionJustificationColumn = false;
 $hasCustomResponseTextColumn = false;
 try {
     $durationCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'duration_seconds'");
@@ -258,8 +257,6 @@ try {
     $hasTotalDocumentViewTimeMsColumn = $totalDocumentViewTimeMsCheck !== false && $totalDocumentViewTimeMsCheck->fetch() !== false;
     $relevantDocumentViewTimeMsCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'relevant_document_view_time_ms'");
     $hasRelevantDocumentViewTimeMsColumn = $relevantDocumentViewTimeMsCheck !== false && $relevantDocumentViewTimeMsCheck->fetch() !== false;
-    $decisionJustificationCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'decision_justification'");
-    $hasDecisionJustificationColumn = $decisionJustificationCheck !== false && $decisionJustificationCheck->fetch() !== false;
     $customResponseTextCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'custom_response_text'");
     $hasCustomResponseTextColumn = $customResponseTextCheck !== false && $customResponseTextCheck->fetch() !== false;
 } catch (Throwable $e) {
@@ -275,7 +272,6 @@ try {
     $hasNumberDocumentsOpenedColumn = false;
     $hasTotalDocumentViewTimeMsColumn = false;
     $hasRelevantDocumentViewTimeMsColumn = false;
-    $hasDecisionJustificationColumn = false;
     $hasCustomResponseTextColumn = false;
 }
 
@@ -445,10 +441,6 @@ if ($hasTotalDocumentViewTimeMsColumn) {
 if ($hasRelevantDocumentViewTimeMsColumn) {
     $updateAssignments[] = 'relevant_document_view_time_ms = :relevant_document_view_time_ms';
     $updateParams[':relevant_document_view_time_ms'] = $relevantDocumentViewTimeMs;
-}
-if ($hasDecisionJustificationColumn) {
-    $updateAssignments[] = 'decision_justification = :decision_justification';
-    $updateParams[':decision_justification'] = null;
 }
 if ($hasCustomResponseTextColumn) {
     $updateAssignments[] = 'custom_response_text = :custom_response_text';

@@ -193,11 +193,16 @@ function move_row_to_trash(
         $postsurveyRowsStmt->execute([':participant_id' => $deleteRowId]);
         $postsurveyRows = $postsurveyRowsStmt->fetchAll();
 
+        $raffleRowsStmt = $pdo->prepare('SELECT * FROM raffle_entries WHERE participant_id = :participant_id ORDER BY id ASC');
+        $raffleRowsStmt->execute([':participant_id' => $deleteRowId]);
+        $raffleRows = $raffleRowsStmt->fetchAll();
+
         $trashPayload = json_encode([
             'participant' => $participantRow,
             'task_responses' => $taskRows,
             'document_events' => $eventRows,
             'postsurvey_responses' => $postsurveyRows,
+            'raffle_entries' => $raffleRows,
         ]);
         if ($trashPayload === false) {
             throw new RuntimeException('Failed to prepare participant trash payload.');
@@ -219,11 +224,13 @@ function move_row_to_trash(
         $deleteDocumentEventsStmt = $pdo->prepare('DELETE FROM document_events WHERE participant_id = :participant_id');
         $deleteTaskResponsesStmt = $pdo->prepare('DELETE FROM task_responses WHERE participant_id = :participant_id');
         $deletePostsurveyStmt = $pdo->prepare('DELETE FROM postsurvey_responses WHERE participant_id = :participant_id');
+        $deleteRaffleEntriesStmt = $pdo->prepare('DELETE FROM raffle_entries WHERE participant_id = :participant_id');
         $deleteParticipantStmt = $pdo->prepare('DELETE FROM participants WHERE id = :id');
 
         $deleteDocumentEventsStmt->execute([':participant_id' => $deleteRowId]);
         $deleteTaskResponsesStmt->execute([':participant_id' => $deleteRowId]);
         $deletePostsurveyStmt->execute([':participant_id' => $deleteRowId]);
+        $deleteRaffleEntriesStmt->execute([':participant_id' => $deleteRowId]);
         $deleteParticipantStmt->execute([':id' => $deleteRowId]);
         return (int) $deleteParticipantStmt->rowCount();
     }
@@ -318,6 +325,15 @@ function restore_trash_item(PDO $pdo, int $trashId, array $allowedDataTables): v
                 }
             }
         }
+
+        $raffleRows = $payload['raffle_entries'] ?? [];
+        if (is_array($raffleRows)) {
+            foreach ($raffleRows as $raffleRow) {
+                if (is_array($raffleRow) && isset($raffleRow['id'])) {
+                    insert_row_with_values($pdo, 'raffle_entries', $raffleRow);
+                }
+            }
+        }
     } else {
         throw new RuntimeException('Unsupported trash entity type.');
     }
@@ -339,6 +355,7 @@ $allowedDataTables = [
     'task_responses',
     'document_events',
     'postsurvey_responses',
+    'raffle_entries',
 ];
 $selectedTable = (string) ($_GET['table'] ?? 'participants');
 if (!in_array($selectedTable, $allowedDataTables, true)) {
@@ -531,6 +548,16 @@ $participantSummary = $participantSummaryStmt->fetch() ?: [
     'total_respondents' => 0,
     'completed_respondents' => 0,
 ];
+
+$raffleEntriesCount = 0;
+try {
+    $raffleEntriesCountStmt = $pdo->query('SELECT COUNT(*) AS total_entries FROM raffle_entries');
+    $raffleEntriesCountRow = $raffleEntriesCountStmt->fetch();
+    $raffleEntriesCount = (int) ($raffleEntriesCountRow['total_entries'] ?? 0);
+} catch (Throwable $e) {
+    // Keep overview available if raffle table does not yet exist.
+    $raffleEntriesCount = 0;
+}
 
 /**
  * Per-condition participant counts and completion.
@@ -1023,7 +1050,7 @@ require __DIR__ . '/../views/header.php';
     <?php endif; ?>
 
     <?php if ($currentTab === 'overview'): ?>
-        <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
             <article class="bg-white shadow rounded-xl p-5">
                 <p class="text-sm text-slate-500">Total respondents</p>
                 <p class="text-3xl font-bold text-slate-800 mt-1"><?= e((string) $totalRespondents) ?></p>
@@ -1040,6 +1067,11 @@ require __DIR__ . '/../views/header.php';
                 <p class="text-sm text-slate-500">Average confidence</p>
                 <p class="text-3xl font-bold text-slate-800 mt-1"><?= e(number_format($overallAvgConfidence, 2)) ?></p>
                 <p class="text-xs text-slate-500 mt-1">Based on task responses (1-5 scale)</p>
+            </article>
+            <article class="bg-white shadow rounded-xl p-5">
+                <p class="text-sm text-slate-500">Raffle entries</p>
+                <p class="text-3xl font-bold text-slate-800 mt-1"><?= e((string) $raffleEntriesCount) ?></p>
+                <p class="text-xs text-slate-500 mt-1">Unique participants with an email entry</p>
             </article>
         </section>
 

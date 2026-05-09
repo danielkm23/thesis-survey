@@ -18,12 +18,13 @@ $allowedTables = [
     'task_responses',
     'document_events',
     'postsurvey_responses',
+    'raffle_entries',
 ];
 
 $table = (string) ($_GET['table'] ?? '');
 if (!in_array($table, $allowedTables, true)) {
     http_response_code(400);
-    exit('Invalid table. Use one of: participants, task_responses, document_events, postsurvey_responses');
+    exit('Invalid table. Use one of: participants, task_responses, document_events, postsurvey_responses, raffle_entries');
 }
 
 $pdo = db();

@@ -160,81 +160,16 @@ if ($alreadySubmitted) {
     redirect('thankyou.php');
 }
 
-$hasAiLit5Column = false;
-$hasAiLit6Column = false;
-$hasSeriousEffortColumn = false;
-$hasInstructionsClarityColumn = false;
-$hasInstructionNoticeColumn = false;
-$hasTaskRealismColumn = false;
-try {
-    $aiLit5Check = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'ai_lit_5'");
-    $hasAiLit5Column = $aiLit5Check !== false && $aiLit5Check->fetch() !== false;
-    $aiLit6Check = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'ai_lit_6'");
-    $hasAiLit6Column = $aiLit6Check !== false && $aiLit6Check->fetch() !== false;
-    $seriousEffortCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'serious_effort'");
-    $hasSeriousEffortColumn = $seriousEffortCheck !== false && $seriousEffortCheck->fetch() !== false;
-    $instructionsClarityCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'instructions_clarity'");
-    $hasInstructionsClarityColumn = $instructionsClarityCheck !== false && $instructionsClarityCheck->fetch() !== false;
-    $instructionNoticeCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'instruction_notice'");
-    $hasInstructionNoticeColumn = $instructionNoticeCheck !== false && $instructionNoticeCheck->fetch() !== false;
-    $taskRealismCheck = $pdo->query("SHOW COLUMNS FROM postsurvey_responses LIKE 'task_realism'");
-    $hasTaskRealismColumn = $taskRealismCheck !== false && $taskRealismCheck->fetch() !== false;
-} catch (Throwable $e) {
-    $hasAiLit5Column = false;
-    $hasAiLit6Column = false;
-    $hasSeriousEffortColumn = false;
-    $hasInstructionsClarityColumn = false;
-    $hasInstructionNoticeColumn = false;
-    $hasTaskRealismColumn = false;
-}
-
-$columns = [
+$requiredPostsurveyColumns = [
     'participant_id',
     'ai_lit_1',
     'ai_lit_2',
     'ai_lit_3',
     'ai_lit_4',
-];
-
-$params = [
-    ':participant_id' => $participantId,
-    ':ai_lit_1' => $aiLit1,
-    ':ai_lit_2' => $aiLit2,
-    ':ai_lit_3' => $aiLit3,
-    ':ai_lit_4' => $aiLit4,
-];
-
-if ($hasAiLit5Column) {
-    $columns[] = 'ai_lit_5';
-    $params[':ai_lit_5'] = null;
-}
-
-if ($hasAiLit6Column) {
-    $columns[] = 'ai_lit_6';
-    $params[':ai_lit_6'] = null;
-}
-
-if ($hasSeriousEffortColumn) {
-    $columns[] = 'serious_effort';
-    $params[':serious_effort'] = $seriousEffort;
-}
-
-if ($hasInstructionsClarityColumn) {
-    $columns[] = 'instructions_clarity';
-    $params[':instructions_clarity'] = $instructionsClarity;
-}
-
-if ($hasInstructionNoticeColumn) {
-    $columns[] = 'instruction_notice';
-    $params[':instruction_notice'] = $instructionNotice;
-}
-
-if ($hasTaskRealismColumn) {
-    $columns[] = 'task_realism';
-    $params[':task_realism'] = $taskRealism;
-}
-
-$columns = array_merge($columns, [
+    'serious_effort',
+    'instructions_clarity',
+    'instruction_notice',
+    'task_realism',
     'crt_1',
     'crt_2',
     'crt_3',
@@ -245,9 +180,88 @@ $columns = array_merge($columns, [
     'submitted_at',
     'duration_seconds',
     'short_time_flag',
-]);
+];
 
-$params = array_merge($params, [
+try {
+    $columnRows = $pdo->query('SHOW COLUMNS FROM postsurvey_responses')->fetchAll(PDO::FETCH_ASSOC);
+    $existingColumns = [];
+    foreach ($columnRows as $columnRow) {
+        $columnName = isset($columnRow['Field']) ? (string) $columnRow['Field'] : '';
+        if ($columnName !== '') {
+            $existingColumns[$columnName] = true;
+        }
+    }
+    $missingColumns = array_values(array_filter(
+        $requiredPostsurveyColumns,
+        static fn (string $columnName): bool => !isset($existingColumns[$columnName])
+    ));
+    if (!empty($missingColumns)) {
+        error_log('save_postsurvey schema mismatch, missing columns: ' . implode(', ', $missingColumns));
+        http_response_code(500);
+        exit(
+            'Database schema is outdated. Missing postsurvey columns: '
+            . implode(', ', $missingColumns)
+            . '. Run sql/live_align_survey_schema.sql and try again.'
+        );
+    }
+} catch (Throwable $e) {
+    error_log('save_postsurvey schema check failed: ' . $e->getMessage());
+    http_response_code(500);
+    exit('Could not verify database schema for post-survey saving. Please contact the researcher.');
+}
+
+$insertSql = 'INSERT INTO postsurvey_responses (
+    participant_id,
+    ai_lit_1,
+    ai_lit_2,
+    ai_lit_3,
+    ai_lit_4,
+    serious_effort,
+    instructions_clarity,
+    instruction_notice,
+    task_realism,
+    crt_1,
+    crt_2,
+    crt_3,
+    ai_experience,
+    age,
+    gender,
+    education,
+    submitted_at,
+    duration_seconds,
+    short_time_flag
+) VALUES (
+    :participant_id,
+    :ai_lit_1,
+    :ai_lit_2,
+    :ai_lit_3,
+    :ai_lit_4,
+    :serious_effort,
+    :instructions_clarity,
+    :instruction_notice,
+    :task_realism,
+    :crt_1,
+    :crt_2,
+    :crt_3,
+    :ai_experience,
+    :age,
+    :gender,
+    :education,
+    :submitted_at,
+    :duration_seconds,
+    :short_time_flag
+)';
+
+$params = [
+    ':participant_id' => $participantId,
+    ':ai_lit_1' => $aiLit1,
+    ':ai_lit_2' => $aiLit2,
+    ':ai_lit_3' => $aiLit3,
+    ':ai_lit_4' => $aiLit4,
+    ':serious_effort' => $seriousEffort,
+    ':instructions_clarity' => $instructionsClarity,
+    ':instruction_notice' => $instructionNotice,
+    ':task_realism' => $taskRealism,
     ':crt_1' => $crt1,
     ':crt_2' => $crt2,
     ':crt_3' => $crt3,
@@ -258,22 +272,38 @@ $params = array_merge($params, [
     ':submitted_at' => $submittedAt,
     ':duration_seconds' => $postsurveyDurationSeconds,
     ':short_time_flag' => $postsurveyShortTimeFlag,
-]);
-
-$placeholders = array_map(static fn (string $column): string => ':' . $column, $columns);
-$insertSql = sprintf(
-    'INSERT INTO postsurvey_responses (%s) VALUES (%s)',
-    implode(', ', $columns),
-    implode(', ', $placeholders)
-);
+];
 
 $insert = $pdo->prepare($insertSql);
 try {
     $insert->execute($params);
 } catch (PDOException $e) {
-    if ((string) $e->getCode() !== '23000') {
-        throw $e;
+    $sqlState = (string) $e->getCode();
+    $driverMsg = isset($e->errorInfo[2]) ? (string) $e->errorInfo[2] : '';
+    $isIntegrity =
+        $sqlState === '23000'
+        || str_contains($driverMsg, 'cannot be null')
+        || str_contains($driverMsg, "doesn't have a default value");
+
+    if ($isIntegrity) {
+        $duplicateCheckStmt = $pdo->prepare(
+            'SELECT id
+             FROM postsurvey_responses
+             WHERE participant_id = :participant_id
+             LIMIT 1'
+        );
+        $duplicateCheckStmt->execute([
+            ':participant_id' => $participantId,
+        ]);
+        if ($duplicateCheckStmt->fetchColumn() !== false) {
+            redirect('thankyou.php');
+        }
+
+        error_log('save_postsurvey insert failed: ' . $e->getMessage());
+        http_response_code(500);
+        exit('Failed to save post-survey responses due to database constraints. Please contact the researcher.');
     }
+    throw $e;
 }
 
 $updateParticipant = $pdo->prepare(
