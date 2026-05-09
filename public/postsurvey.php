@@ -588,6 +588,10 @@ require __DIR__ . '/../views/header.php';
                                 <input type="radio" name="gender" value="female" required class="h-4 w-4" <?= $prefillGender === 'female' ? 'checked' : '' ?>>
                                 <span>Female</span>
                             </label>
+                            <label class="flex items-center gap-2 text-sm">
+                                <input type="radio" name="gender" value="prefer_not_to_say" required class="h-4 w-4" <?= $prefillGender === 'prefer_not_to_say' ? 'checked' : '' ?>>
+                                <span>Prefer not to say</span>
+                            </label>
                         </div>
                     </fieldset>
 

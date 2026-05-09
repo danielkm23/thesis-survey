@@ -89,7 +89,7 @@ $crt2 = required_integer_response('crt_2');
 $crt3 = required_integer_response('crt_3');
 
 $allowedAiExperience = ['never', 'less_than_monthly', 'few_times_per_month', 'few_times_per_week', 'daily'];
-$allowedGender = ['male', 'female'];
+$allowedGender = ['male', 'female', 'prefer_not_to_say'];
 $allowedEducation = ['secondary_education', 'currently_enrolled_bachelors', 'bachelors', 'masters', 'doctoral_degree', 'prefer_not_to_say'];
 
 $sessionAnswers = session_get('postsurvey_answers', []);
@@ -146,6 +146,22 @@ if (is_string($postsurveyStartedAt) && $postsurveyStartedAt !== '') {
 }
 
 $pdo = db();
+$participantExistsStmt = $pdo->prepare(
+    'SELECT id
+     FROM participants
+     WHERE id = :participant_id
+     LIMIT 1'
+);
+$participantExistsStmt->execute([
+    ':participant_id' => $participantId,
+]);
+$participantExists = $participantExistsStmt->fetchColumn() !== false;
+if ($participantId <= 0 || !$participantExists) {
+    unset($_SESSION['participant_id'], $_SESSION['participant_code'], $_SESSION['condition_name'], $_SESSION['postsurvey_answers'], $_SESSION['postsurvey_started_at']);
+    http_response_code(409);
+    exit('Your participant session is no longer valid. Please restart the study from the beginning.');
+}
+
 $existingPostsurveyStmt = $pdo->prepare(
     'SELECT id
      FROM postsurvey_responses
