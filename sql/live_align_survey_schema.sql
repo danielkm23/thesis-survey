@@ -12,7 +12,7 @@ SET @db_name = DATABASE();
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'postsurvey_responses' AND COLUMN_NAME = 'serious_effort') = 0,
-    'ALTER TABLE postsurvey_responses ADD COLUMN serious_effort TINYINT UNSIGNED NOT NULL',
+    'ALTER TABLE postsurvey_responses ADD COLUMN serious_effort TINYINT UNSIGNED NOT NULL DEFAULT 3',
     'SELECT ''serious_effort already exists'' AS info'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -20,7 +20,7 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'postsurvey_responses' AND COLUMN_NAME = 'instructions_clarity') = 0,
-    'ALTER TABLE postsurvey_responses ADD COLUMN instructions_clarity TINYINT UNSIGNED NOT NULL',
+    'ALTER TABLE postsurvey_responses ADD COLUMN instructions_clarity TINYINT UNSIGNED NOT NULL DEFAULT 3',
     'SELECT ''instructions_clarity already exists'' AS info'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -28,7 +28,7 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'postsurvey_responses' AND COLUMN_NAME = 'instruction_notice') = 0,
-    'ALTER TABLE postsurvey_responses ADD COLUMN instruction_notice TINYINT UNSIGNED NOT NULL',
+    'ALTER TABLE postsurvey_responses ADD COLUMN instruction_notice TINYINT UNSIGNED NOT NULL DEFAULT 3',
     'SELECT ''instruction_notice already exists'' AS info'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -36,7 +36,7 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'postsurvey_responses' AND COLUMN_NAME = 'task_realism') = 0,
-    'ALTER TABLE postsurvey_responses ADD COLUMN task_realism TINYINT UNSIGNED NOT NULL',
+    'ALTER TABLE postsurvey_responses ADD COLUMN task_realism TINYINT UNSIGNED NOT NULL DEFAULT 3',
     'SELECT ''task_realism already exists'' AS info'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
