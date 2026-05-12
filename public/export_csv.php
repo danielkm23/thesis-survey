@@ -6,6 +6,7 @@ session_start();
 require_once __DIR__ . '/../app/config.php';
 require_once __DIR__ . '/../app/helpers.php';
 require_once __DIR__ . '/../app/db.php';
+require_once __DIR__ . '/../app/analysis.php';
 
 $dashboardSessionKey = 'dashboard_authenticated';
 if (session_get($dashboardSessionKey) !== true) {
@@ -19,17 +20,23 @@ $allowedTables = [
     'document_events',
     'postsurvey_responses',
     'raffle_entries',
+    'analysis_task_level',
+    'analysis_participant_summary',
 ];
 
 $table = (string) ($_GET['table'] ?? '');
 if (!in_array($table, $allowedTables, true)) {
     http_response_code(400);
-    exit('Invalid table. Use one of: participants, task_responses, document_events, postsurvey_responses, raffle_entries');
+    exit('Invalid table.');
 }
 
 $pdo = db();
 
-if ($table === 'task_responses') {
+if ($table === 'analysis_task_level') {
+    $rows = analysis_task_level($pdo);
+} elseif ($table === 'analysis_participant_summary') {
+    $rows = analysis_participant_summary($pdo);
+} elseif ($table === 'task_responses') {
     $hasSelectedResponseOptionColumn = false;
     $hasCustomResponseTextColumn = false;
     try {
@@ -98,13 +105,13 @@ if ($output === false) {
 }
 
 if (!empty($rows)) {
-    fputcsv($output, array_keys($rows[0]));
+    fputcsv($output, array_keys($rows[0]), ',', '"', '\\');
     foreach ($rows as $row) {
-        fputcsv($output, $row);
+        fputcsv($output, $row, ',', '"', '\\');
     }
 } else {
-    fputcsv($output, ['message']);
-    fputcsv($output, ['No data found']);
+    fputcsv($output, ['message'], ',', '"', '\\');
+    fputcsv($output, ['No data found'], ',', '"', '\\');
 }
 
 fclose($output);

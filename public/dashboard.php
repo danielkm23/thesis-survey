@@ -6,6 +6,7 @@ session_start();
 require_once __DIR__ . '/../app/config.php';
 require_once __DIR__ . '/../app/helpers.php';
 require_once __DIR__ . '/../app/db.php';
+require_once __DIR__ . '/../app/analysis.php';
 
 /**
  * Temporary lightweight password gate for internal dashboard access.
@@ -114,6 +115,26 @@ function int_in_range_or_null(mixed $value, int $min, int $max): ?int
     return (int) $validated;
 }
 
+function extract_reflection_value(string $reflection, string $key): ?string
+{
+    $needle = $key . '=';
+    $pos = strpos($reflection, $needle);
+    if ($pos === false) {
+        return null;
+    }
+    $valueStart = $pos + strlen($needle);
+    $remaining = substr($reflection, $valueStart);
+    if ($remaining === false) {
+        return null;
+    }
+    $line = strtok($remaining, "\r\n");
+    if ($line === false) {
+        return null;
+    }
+    $trimmed = trim($line);
+    return $trimmed === '' ? null : $trimmed;
+}
+
 function ensure_dashboard_trash_table(PDO $pdo): void
 {
     $pdo->exec(
@@ -128,6 +149,15 @@ function ensure_dashboard_trash_table(PDO $pdo): void
             INDEX idx_dashboard_trash_deleted_at (deleted_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+}
+
+function ensure_manual_response_correctness_column(PDO $pdo): void
+{
+    if (analysis_column_exists($pdo, 'task_responses', 'manual_response_correctness')) {
+        return;
+    }
+    // Add at table end to support schemas that do not contain response_correctness yet.
+    $pdo->exec('ALTER TABLE task_responses ADD COLUMN manual_response_correctness TINYINT(1) NULL');
 }
 
 function insert_row_with_values(PDO $pdo, string $table, array $row): void
@@ -346,7 +376,17 @@ $pdo = db();
 $trashRows = [];
 ensure_dashboard_trash_table($pdo);
 $currentTab = (string) ($_GET['tab'] ?? 'overview');
-if (!in_array($currentTab, ['overview', 'data', 'participant', 'trash'], true)) {
+if (!in_array($currentTab, [
+    'overview',
+    'condition_results',
+    'calibration',
+    'inspection',
+    'participants_analysis',
+    'task_level_analysis',
+    'data',
+    'participant',
+    'trash',
+], true)) {
     $currentTab = 'overview';
 }
 
@@ -364,6 +404,88 @@ if (!in_array($selectedTable, $allowedDataTables, true)) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['dashboard_action'])) {
     $dashboardAction = (string) ($_POST['dashboard_action'] ?? '');
+    if ($dashboardAction === 'code_other_response') {
+        $submittedCsrfToken = (string) ($_POST['csrf_token'] ?? '');
+        if (!hash_equals($dashboardCsrfToken, $submittedCsrfToken)) {
+            $_SESSION['dashboard_flash_error'] = 'Invalid security token. Please refresh and try again.';
+            redirect('/dashboard/?tab=overview');
+        }
+
+        $participantId = filter_var($_POST['participant_id'] ?? null, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        $taskNumber = filter_var($_POST['task_number'] ?? null, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        $manualResponseCorrectness = filter_var($_POST['manual_response_correctness'] ?? null, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 0, 'max_range' => 1],
+        ]);
+        $returnUrl = (string) ($_POST['return_url'] ?? '/dashboard/?tab=overview');
+        if (!str_starts_with($returnUrl, '/dashboard')) {
+            $returnUrl = '/dashboard/?tab=overview';
+        }
+
+        if (
+            $participantId === false
+            || $participantId === null
+            || $taskNumber === false
+            || $taskNumber === null
+            || $manualResponseCorrectness === false
+            || $manualResponseCorrectness === null
+        ) {
+            $_SESSION['dashboard_flash_error'] = 'Invalid coding request.';
+            redirect($returnUrl);
+        }
+
+        try {
+            ensure_manual_response_correctness_column($pdo);
+            $hasSelectedOptionKeyColumn = analysis_column_exists($pdo, 'task_responses', 'selected_option_key');
+            $selectedOptionKeySelect = $hasSelectedOptionKeyColumn ? 'selected_option_key' : 'NULL AS selected_option_key';
+            $rowStmt = $pdo->prepare(
+                'SELECT ' . $selectedOptionKeySelect . ', active_reflection
+                 FROM task_responses
+                 WHERE participant_id = :participant_id AND task_number = :task_number
+                 LIMIT 1'
+            );
+            $rowStmt->execute([
+                ':participant_id' => (int) $participantId,
+                ':task_number' => (int) $taskNumber,
+            ]);
+            $row = $rowStmt->fetch();
+            if (!$row) {
+                throw new RuntimeException('Task response not found.');
+            }
+
+            $selectedOptionKey = null;
+            if ($hasSelectedOptionKeyColumn && isset($row['selected_option_key']) && $row['selected_option_key'] !== null) {
+                $selectedOptionKey = trim((string) $row['selected_option_key']);
+            }
+            if ($selectedOptionKey === null || $selectedOptionKey === '') {
+                $selectedOptionKey = extract_reflection_value((string) ($row['active_reflection'] ?? ''), 'selected_option_key');
+            }
+            if ($selectedOptionKey !== 'other') {
+                throw new RuntimeException('Manual coding is only available for responses selected as "other".');
+            }
+
+            $updateStmt = $pdo->prepare(
+                'UPDATE task_responses
+                 SET manual_response_correctness = :manual_response_correctness
+                 WHERE participant_id = :participant_id AND task_number = :task_number'
+            );
+            $updateStmt->execute([
+                ':manual_response_correctness' => (int) $manualResponseCorrectness,
+                ':participant_id' => (int) $participantId,
+                ':task_number' => (int) $taskNumber,
+            ]);
+
+            $_SESSION['dashboard_flash_success'] = 'Saved manual coding for participant ' . (int) $participantId
+                . ', task ' . (int) $taskNumber . '.';
+        } catch (Throwable $e) {
+            $_SESSION['dashboard_flash_error'] = 'Manual coding failed: ' . $e->getMessage();
+        }
+        redirect($returnUrl);
+    }
+
     if ($dashboardAction === 'delete_row' || $dashboardAction === 'bulk_move_to_trash') {
         $submittedCsrfToken = (string) ($_POST['csrf_token'] ?? '');
         if (!hash_equals($dashboardCsrfToken, $submittedCsrfToken)) {
@@ -786,8 +908,19 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
 
             $aiCorrect = (int) $taskRow['ai_correct'];
             $relianceChoice = (string) $taskRow['reliance_choice'];
-            $isCorrectDecision = ($aiCorrect === 1 && $relianceChoice !== 'did_not_use')
-                || ($aiCorrect === 0 && $relianceChoice === 'did_not_use');
+            $manualResponseCorrectness = isset($taskRow['manual_response_correctness']) && $taskRow['manual_response_correctness'] !== null
+                ? (int) $taskRow['manual_response_correctness']
+                : null;
+            $responseCorrectness = isset($taskRow['response_correctness']) && $taskRow['response_correctness'] !== null
+                ? (int) $taskRow['response_correctness']
+                : null;
+            $finalDecisionCorrect = $manualResponseCorrectness ?? $responseCorrectness;
+            if ($finalDecisionCorrect === null) {
+                $isCorrectDecision = ($aiCorrect === 1 && $relianceChoice !== 'did_not_use')
+                    || ($aiCorrect === 0 && $relianceChoice === 'did_not_use');
+            } else {
+                $isCorrectDecision = $finalDecisionCorrect === 1;
+            }
 
             $participantDecisionTotal++;
             if ($isCorrectDecision) {
@@ -886,6 +1019,12 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
 /**
  * Pull task-level response data for correctness and confidence summaries.
  */
+$responseCorrectnessSelect = analysis_column_exists($pdo, 'task_responses', 'response_correctness')
+    ? 'tr.response_correctness'
+    : 'NULL AS response_correctness';
+$manualResponseCorrectnessSelect = analysis_column_exists($pdo, 'task_responses', 'manual_response_correctness')
+    ? 'tr.manual_response_correctness'
+    : 'NULL AS manual_response_correctness';
 $taskRowsStmt = $pdo->query(
     'SELECT
         p.condition_name,
@@ -893,6 +1032,8 @@ $taskRowsStmt = $pdo->query(
         tr.task_number,
         tr.ai_correct,
         tr.reliance_choice,
+        ' . $responseCorrectnessSelect . ',
+        ' . $manualResponseCorrectnessSelect . ',
         tr.confidence
      FROM task_responses tr
      JOIN participants p ON p.id = tr.participant_id'
@@ -949,11 +1090,20 @@ foreach ($taskRows as $row) {
         }
     }
 
-    // Decision correctness proxy using available fields:
-    // - If AI output is correct, relying on it is counted as correct.
-    // - If AI output is incorrect, not using it is counted as correct.
-    $isCorrectDecision = ($aiCorrect === 1 && $relianceChoice !== 'did_not_use')
-        || ($aiCorrect === 0 && $relianceChoice === 'did_not_use');
+    $manualResponseCorrectness = isset($row['manual_response_correctness']) && $row['manual_response_correctness'] !== null
+        ? (int) $row['manual_response_correctness']
+        : null;
+    $responseCorrectness = isset($row['response_correctness']) && $row['response_correctness'] !== null
+        ? (int) $row['response_correctness']
+        : null;
+    $finalDecisionCorrect = $manualResponseCorrectness ?? $responseCorrectness;
+    if ($finalDecisionCorrect === null) {
+        // Fallback proxy for older rows that do not yet have coding.
+        $isCorrectDecision = ($aiCorrect === 1 && $relianceChoice !== 'did_not_use')
+            || ($aiCorrect === 0 && $relianceChoice === 'did_not_use');
+    } else {
+        $isCorrectDecision = $finalDecisionCorrect === 1;
+    }
     $correctnessTotals[$condition]++;
     if ($isCorrectDecision) {
         $correctnessHits[$condition]++;
@@ -989,6 +1139,365 @@ if ($overallConfidenceCount > 0) {
     $overallAvgConfidence = array_sum($confidenceSums) / $overallConfidenceCount;
 }
 
+$analysisTaskLevelRows = analysis_task_level($pdo);
+$analysisParticipantRows = analysis_participant_summary($pdo);
+
+$analysisTotalRespondents = count($analysisParticipantRows);
+$analysisCompletedRespondents = 0;
+$analysisAvgCorrectPctSum = 0.0;
+$analysisAvgCorrectPctCount = 0;
+$analysisAvgConfidenceSum = 0.0;
+$analysisAvgConfidenceCount = 0;
+$analysisRelevantOpenRateSum = 0.0;
+$analysisRelevantOpenRateCount = 0;
+$analysisConditionStats = [];
+$analysisConditionAiBuckets = [];
+$correctDist = ['0/2' => 0, '1/2' => 0, '2/2' => 0];
+$relevantDist = ['0%' => 0, '50%' => 0, '100%' => 0];
+$manualCodeRequiredCount = 0;
+$uncodedOtherCount = 0;
+$nullFinalDecisionCount = 0;
+$uncodedOtherRows = [];
+
+foreach ($analysisParticipantRows as $participantRow) {
+    $condition = (string) ($participantRow['condition_name'] ?? 'unknown');
+    $tasksCompleted = (int) ($participantRow['tasks_completed'] ?? 0);
+    $correctCount = (int) ($participantRow['correct_count'] ?? 0);
+    $relevantRate = $participantRow['relevant_doc_open_rate'];
+
+    if (($participantRow['completed_at'] ?? null) !== null && trim((string) $participantRow['completed_at']) !== '') {
+        $analysisCompletedRespondents++;
+    }
+    if ($participantRow['correct_pct'] !== null) {
+        $analysisAvgCorrectPctSum += (float) $participantRow['correct_pct'];
+        $analysisAvgCorrectPctCount++;
+    }
+    if ($participantRow['avg_confidence'] !== null) {
+        $analysisAvgConfidenceSum += (float) $participantRow['avg_confidence'];
+        $analysisAvgConfidenceCount++;
+    }
+    if ($relevantRate !== null) {
+        $analysisRelevantOpenRateSum += (float) $relevantRate;
+        $analysisRelevantOpenRateCount++;
+    }
+
+    if (!isset($analysisConditionStats[$condition])) {
+        $analysisConditionStats[$condition] = [
+            'participants' => 0,
+            'completed' => 0,
+            'tasks_completed_sum' => 0,
+            'correct_pct_sum' => 0.0,
+            'correct_pct_count' => 0,
+            'avg_confidence_sum' => 0.0,
+            'avg_confidence_count' => 0,
+            'relevant_rate_sum' => 0.0,
+            'relevant_rate_count' => 0,
+            'avg_docs_opened_sum' => 0.0,
+            'avg_docs_opened_count' => 0,
+            'overreliance_sum' => 0,
+        ];
+    }
+    $analysisConditionStats[$condition]['participants']++;
+    if (($participantRow['completed_at'] ?? null) !== null && trim((string) $participantRow['completed_at']) !== '') {
+        $analysisConditionStats[$condition]['completed']++;
+    }
+    $analysisConditionStats[$condition]['tasks_completed_sum'] += $tasksCompleted;
+    if ($participantRow['correct_pct'] !== null) {
+        $analysisConditionStats[$condition]['correct_pct_sum'] += (float) $participantRow['correct_pct'];
+        $analysisConditionStats[$condition]['correct_pct_count']++;
+    }
+    if ($participantRow['avg_confidence'] !== null) {
+        $analysisConditionStats[$condition]['avg_confidence_sum'] += (float) $participantRow['avg_confidence'];
+        $analysisConditionStats[$condition]['avg_confidence_count']++;
+    }
+    if ($relevantRate !== null) {
+        $analysisConditionStats[$condition]['relevant_rate_sum'] += (float) $relevantRate;
+        $analysisConditionStats[$condition]['relevant_rate_count']++;
+    }
+    if ($participantRow['avg_docs_opened'] !== null) {
+        $analysisConditionStats[$condition]['avg_docs_opened_sum'] += (float) $participantRow['avg_docs_opened'];
+        $analysisConditionStats[$condition]['avg_docs_opened_count']++;
+    }
+    $analysisConditionStats[$condition]['overreliance_sum'] += (int) ($participantRow['overreliance_error_count'] ?? 0);
+
+    if ($tasksCompleted === 2) {
+        if ($correctCount <= 0) {
+            $correctDist['0/2']++;
+        } elseif ($correctCount === 1) {
+            $correctDist['1/2']++;
+        } else {
+            $correctDist['2/2']++;
+        }
+    }
+    if ($tasksCompleted === 2 && $relevantRate !== null) {
+        $bucket = (int) round(((float) $relevantRate) * 100.0);
+        if ($bucket <= 0) {
+            $relevantDist['0%']++;
+        } elseif ($bucket >= 100) {
+            $relevantDist['100%']++;
+        } else {
+            $relevantDist['50%']++;
+        }
+    }
+}
+
+foreach ($analysisTaskLevelRows as $taskRow) {
+    $condition = (string) ($taskRow['condition_name'] ?? 'unknown');
+    $aiCorrect = (int) ($taskRow['ai_correct'] ?? 0);
+    if (!isset($analysisConditionAiBuckets[$condition])) {
+        $analysisConditionAiBuckets[$condition] = [
+            0 => ['n' => 0, 'correct' => 0],
+            1 => ['n' => 0, 'correct' => 0],
+        ];
+    }
+    $analysisConditionAiBuckets[$condition][$aiCorrect]['n']++;
+    if (($taskRow['final_decision_correct'] ?? null) === 1) {
+        $analysisConditionAiBuckets[$condition][$aiCorrect]['correct']++;
+    }
+    if ((int) ($taskRow['manual_code_required'] ?? 0) === 1) {
+        $manualCodeRequiredCount++;
+    }
+    if (
+        ($taskRow['selected_option_key'] ?? null) === 'other'
+        && ($taskRow['final_decision_correct'] ?? null) === null
+    ) {
+        $uncodedOtherCount++;
+        $uncodedOtherRows[] = [
+            'participant_id' => (int) ($taskRow['participant_id'] ?? 0),
+            'participant_code' => (string) ($taskRow['participant_code'] ?? ''),
+            'condition_name' => (string) ($taskRow['condition_name'] ?? ''),
+            'task_number' => (int) ($taskRow['task_number'] ?? 0),
+            'custom_response_text' => (string) ($taskRow['custom_response_text'] ?? ''),
+            'final_response' => (string) ($taskRow['final_response'] ?? ''),
+            'active_reflection' => (string) ($taskRow['active_reflection'] ?? ''),
+            'verification_intention' => (string) ($taskRow['verification_intention'] ?? ''),
+        ];
+    }
+    if (($taskRow['final_decision_correct'] ?? null) === null) {
+        $nullFinalDecisionCount++;
+    }
+}
+
+$analysisCompletionRate = $analysisTotalRespondents > 0
+    ? ($analysisCompletedRespondents / $analysisTotalRespondents) * 100.0
+    : 0.0;
+$analysisAvgCorrectPct = $analysisAvgCorrectPctCount > 0
+    ? $analysisAvgCorrectPctSum / $analysisAvgCorrectPctCount
+    : 0.0;
+$analysisAvgConfidence = $analysisAvgConfidenceCount > 0
+    ? $analysisAvgConfidenceSum / $analysisAvgConfidenceCount
+    : 0.0;
+$analysisRelevantOpenRatePct = $analysisRelevantOpenRateCount > 0
+    ? ($analysisRelevantOpenRateSum / $analysisRelevantOpenRateCount) * 100.0
+    : 0.0;
+
+$analysisCohortParticipants = array_values(array_filter(
+    $analysisParticipantRows,
+    static fn (array $row): bool => (int) ($row['tasks_completed'] ?? 0) === 2
+        && ($row['serious_effort'] ?? null) !== null
+        && trim((string) ($row['completed_at'] ?? '')) !== ''
+));
+$analysisCohortParticipantIds = array_flip(array_map(
+    static fn (array $row): int => (int) $row['participant_id'],
+    $analysisCohortParticipants
+));
+$analysisCohortTaskRows = array_values(array_filter(
+    $analysisTaskLevelRows,
+    static fn (array $row): bool => isset($analysisCohortParticipantIds[(int) ($row['participant_id'] ?? 0)])
+));
+
+$participantsPerCondition = [];
+foreach ($conditionNames as $conditionName) {
+    $participantsPerCondition[$conditionName] = (int) ($respondentsByCondition[$conditionName] ?? 0);
+}
+$lowQualityCount = 0;
+foreach ($analysisCohortParticipants as $row) {
+    if ((int) ($row['low_quality_response'] ?? 0) === 1) {
+        $lowQualityCount++;
+    }
+}
+$avgTaskDurationSeconds = 0.0;
+$avgTaskDurationCount = 0;
+foreach ($analysisCohortTaskRows as $row) {
+    if (($row['duration_seconds'] ?? null) !== null) {
+        $avgTaskDurationSeconds += (float) $row['duration_seconds'];
+        $avgTaskDurationCount++;
+    }
+}
+$avgTaskDurationSeconds = $avgTaskDurationCount > 0 ? ($avgTaskDurationSeconds / $avgTaskDurationCount) : 0.0;
+
+$avgPostsurveyDurationSeconds = 0.0;
+$avgPostsurveyDurationCount = 0;
+$postsurveyDurationStmt = $pdo->query('SELECT duration_seconds FROM postsurvey_responses WHERE duration_seconds IS NOT NULL');
+foreach ($postsurveyDurationStmt->fetchAll() as $durationRow) {
+    $avgPostsurveyDurationSeconds += (float) ($durationRow['duration_seconds'] ?? 0);
+    $avgPostsurveyDurationCount++;
+}
+$avgPostsurveyDurationSeconds = $avgPostsurveyDurationCount > 0
+    ? ($avgPostsurveyDurationSeconds / $avgPostsurveyDurationCount)
+    : 0.0;
+
+$conditionResults = [];
+$calibrationRows = [];
+$inspectionRows = [];
+$correctDistByCondition = [];
+$relevantDistByCondition = [];
+$participantUncodedOtherCount = [];
+
+foreach ($analysisTaskLevelRows as $taskRow) {
+    $participantId = (int) ($taskRow['participant_id'] ?? 0);
+    if (
+        ($taskRow['selected_option_key'] ?? null) === 'other'
+        && ($taskRow['final_decision_correct'] ?? null) === null
+    ) {
+        $participantUncodedOtherCount[$participantId] = ($participantUncodedOtherCount[$participantId] ?? 0) + 1;
+    }
+}
+
+foreach ($analysisCohortParticipants as $participantRow) {
+    $condition = (string) ($participantRow['condition_name'] ?? 'unknown');
+    if (!isset($conditionResults[$condition])) {
+        $conditionResults[$condition] = [
+            'n_completed' => 0,
+            'correct_count_sum' => 0.0,
+            'correct_pct_sum' => 0.0,
+            'correct_pct_count' => 0,
+            'two_of_two' => 0,
+            'relevant_rate_sum' => 0.0,
+            'relevant_rate_count' => 0,
+            'avg_docs_opened_sum' => 0.0,
+            'avg_docs_opened_count' => 0,
+            'avg_relevant_doc_time_sum' => 0.0,
+            'avg_relevant_doc_time_count' => 0,
+            'avg_confidence_sum' => 0.0,
+            'avg_confidence_count' => 0,
+        ];
+        $correctDistByCondition[$condition] = ['0' => 0, '1' => 0, '2' => 0];
+        $relevantDistByCondition[$condition] = ['0' => 0, '50' => 0, '100' => 0];
+    }
+    $conditionResults[$condition]['n_completed']++;
+    $correctCount = (int) ($participantRow['correct_count'] ?? 0);
+    $conditionResults[$condition]['correct_count_sum'] += $correctCount;
+    if ($participantRow['correct_pct'] !== null) {
+        $conditionResults[$condition]['correct_pct_sum'] += (float) $participantRow['correct_pct'];
+        $conditionResults[$condition]['correct_pct_count']++;
+    }
+    if ($correctCount === 2) {
+        $conditionResults[$condition]['two_of_two']++;
+    }
+    if ($participantRow['relevant_doc_open_rate'] !== null) {
+        $rate = (float) $participantRow['relevant_doc_open_rate'];
+        $conditionResults[$condition]['relevant_rate_sum'] += $rate;
+        $conditionResults[$condition]['relevant_rate_count']++;
+        $rateBucket = (int) round($rate * 100.0);
+        if ($rateBucket <= 0) {
+            $relevantDistByCondition[$condition]['0']++;
+        } elseif ($rateBucket >= 100) {
+            $relevantDistByCondition[$condition]['100']++;
+        } else {
+            $relevantDistByCondition[$condition]['50']++;
+        }
+    }
+    if ($participantRow['avg_docs_opened'] !== null) {
+        $conditionResults[$condition]['avg_docs_opened_sum'] += (float) $participantRow['avg_docs_opened'];
+        $conditionResults[$condition]['avg_docs_opened_count']++;
+    }
+    if ($participantRow['avg_relevant_doc_time_sec'] !== null) {
+        $conditionResults[$condition]['avg_relevant_doc_time_sum'] += (float) $participantRow['avg_relevant_doc_time_sec'];
+        $conditionResults[$condition]['avg_relevant_doc_time_count']++;
+    }
+    if ($participantRow['avg_confidence'] !== null) {
+        $conditionResults[$condition]['avg_confidence_sum'] += (float) $participantRow['avg_confidence'];
+        $conditionResults[$condition]['avg_confidence_count']++;
+    }
+    $correctDistKey = (string) max(0, min(2, $correctCount));
+    $correctDistByCondition[$condition][$correctDistKey]++;
+}
+
+foreach ($analysisCohortTaskRows as $taskRow) {
+    $condition = (string) ($taskRow['condition_name'] ?? 'unknown');
+    $aiCorrect = (int) ($taskRow['ai_correct'] ?? 0);
+    $calibrationKey = $condition . '|' . $aiCorrect;
+    if (!isset($calibrationRows[$calibrationKey])) {
+        $calibrationRows[$calibrationKey] = [
+            'condition_name' => $condition,
+            'ai_correct' => $aiCorrect,
+            'n' => 0,
+            'final_correct_sum' => 0.0,
+            'final_correct_count' => 0,
+            'relevant_open_sum' => 0.0,
+            'relevant_open_count' => 0,
+            'confidence_sum' => 0.0,
+            'confidence_count' => 0,
+            'relevant_time_sum' => 0.0,
+            'relevant_time_count' => 0,
+            'overreliance_sum' => 0.0,
+            'overreliance_count' => 0,
+            'underreliance_sum' => 0.0,
+            'underreliance_count' => 0,
+        ];
+    }
+    $calibrationRows[$calibrationKey]['n']++;
+    if (($taskRow['final_decision_correct'] ?? null) !== null) {
+        $calibrationRows[$calibrationKey]['final_correct_sum'] += (float) $taskRow['final_decision_correct'];
+        $calibrationRows[$calibrationKey]['final_correct_count']++;
+    }
+    if (($taskRow['relevant_document_opened'] ?? null) !== null) {
+        $calibrationRows[$calibrationKey]['relevant_open_sum'] += (float) $taskRow['relevant_document_opened'];
+        $calibrationRows[$calibrationKey]['relevant_open_count']++;
+    }
+    if (($taskRow['confidence'] ?? null) !== null) {
+        $calibrationRows[$calibrationKey]['confidence_sum'] += (float) $taskRow['confidence'];
+        $calibrationRows[$calibrationKey]['confidence_count']++;
+    }
+    if (($taskRow['relevant_document_view_time_sec'] ?? null) !== null) {
+        $calibrationRows[$calibrationKey]['relevant_time_sum'] += (float) $taskRow['relevant_document_view_time_sec'];
+        $calibrationRows[$calibrationKey]['relevant_time_count']++;
+    }
+    if ($aiCorrect === 0) {
+        $calibrationRows[$calibrationKey]['overreliance_sum'] += (float) ($taskRow['overreliance_error'] ?? 0);
+        $calibrationRows[$calibrationKey]['overreliance_count']++;
+    }
+    if ($aiCorrect === 1) {
+        $calibrationRows[$calibrationKey]['underreliance_sum'] += (float) ($taskRow['underreliance_or_false_alarm_error'] ?? 0);
+        $calibrationRows[$calibrationKey]['underreliance_count']++;
+    }
+
+    if (!isset($inspectionRows[$condition])) {
+        $inspectionRows[$condition] = [
+            'n' => 0,
+            'inspection_any_sum' => 0.0,
+            'inspection_any_count' => 0,
+            'inspection_relevant_sum' => 0.0,
+            'inspection_relevant_count' => 0,
+            'opened_all_sum' => 0.0,
+            'opened_all_count' => 0,
+            'docs_opened_sum' => 0.0,
+            'docs_opened_count' => 0,
+            'total_time_sum' => 0.0,
+            'total_time_count' => 0,
+            'relevant_time_sum' => 0.0,
+            'relevant_time_count' => 0,
+        ];
+    }
+    $inspectionRows[$condition]['n']++;
+    $inspectionRows[$condition]['inspection_any_sum'] += (float) ($taskRow['inspection_any'] ?? 0);
+    $inspectionRows[$condition]['inspection_any_count']++;
+    $inspectionRows[$condition]['inspection_relevant_sum'] += (float) ($taskRow['inspection_relevant'] ?? 0);
+    $inspectionRows[$condition]['inspection_relevant_count']++;
+    $inspectionRows[$condition]['opened_all_sum'] += (float) ($taskRow['opened_all_docs'] ?? 0);
+    $inspectionRows[$condition]['opened_all_count']++;
+    $inspectionRows[$condition]['docs_opened_sum'] += (float) ($taskRow['number_documents_opened'] ?? 0);
+    $inspectionRows[$condition]['docs_opened_count']++;
+    $inspectionRows[$condition]['total_time_sum'] += (float) ($taskRow['total_document_view_time_sec'] ?? 0);
+    $inspectionRows[$condition]['total_time_count']++;
+    $inspectionRows[$condition]['relevant_time_sum'] += (float) ($taskRow['relevant_document_view_time_sec'] ?? 0);
+    $inspectionRows[$condition]['relevant_time_count']++;
+}
+
+ksort($conditionResults);
+ksort($inspectionRows);
+
 $pageTitle = 'Internal Dashboard';
 require __DIR__ . '/../views/header.php';
 ?>
@@ -1013,13 +1522,43 @@ require __DIR__ . '/../views/header.php';
                 href="/dashboard/?tab=overview"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'overview' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
-                Overview
+                Overview / Data Quality
+            </a>
+            <a
+                href="/dashboard/?tab=condition_results"
+                class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'condition_results' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
+            >
+                Condition Results
+            </a>
+            <a
+                href="/dashboard/?tab=calibration"
+                class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'calibration' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
+            >
+                Calibration by Task
+            </a>
+            <a
+                href="/dashboard/?tab=inspection"
+                class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'inspection' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
+            >
+                Inspection Behavior
+            </a>
+            <a
+                href="/dashboard/?tab=participants_analysis"
+                class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'participants_analysis' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
+            >
+                Participants
+            </a>
+            <a
+                href="/dashboard/?tab=task_level_analysis"
+                class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'task_level_analysis' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
+            >
+                Task-Level Data
             </a>
             <a
                 href="/dashboard/?tab=data"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'data' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
-                Full Data
+                Raw Data
             </a>
             <a
                 href="/dashboard/?tab=trash"
@@ -1048,87 +1587,613 @@ require __DIR__ . '/../views/header.php';
             <p class="text-sm text-rose-700"><?= e($flashError) ?></p>
         </section>
     <?php endif; ?>
+    <?php if ($currentTab === 'overview' && $nullFinalDecisionCount > 0): ?>
+        <section class="mb-4">
+            <p class="text-sm text-amber-700">
+                Warning: <?= e((string) $nullFinalDecisionCount) ?> task response(s) have NULL <code>final_decision_correct</code>.
+                This can affect correctness metrics until coding is complete.
+            </p>
+        </section>
+    <?php endif; ?>
 
     <?php if ($currentTab === 'overview'): ?>
-        <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
-            <article class="bg-white shadow rounded-xl p-5">
-                <p class="text-sm text-slate-500">Total respondents</p>
-                <p class="text-3xl font-bold text-slate-800 mt-1"><?= e((string) $totalRespondents) ?></p>
+        <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Total started participants</p>
+                <p class="text-3xl font-bold text-slate-800 mt-2"><?= e((string) $totalRespondents) ?></p>
             </article>
-            <article class="bg-white shadow rounded-xl p-5">
-                <p class="text-sm text-slate-500">Completed respondents</p>
-                <p class="text-3xl font-bold text-slate-800 mt-1"><?= e((string) $completedRespondents) ?></p>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Completed respondents</p>
+                <p class="text-3xl font-bold text-slate-800 mt-2"><?= e((string) $analysisCompletedRespondents) ?></p>
             </article>
-            <article class="bg-white shadow rounded-xl p-5">
-                <p class="text-sm text-slate-500">Completion rate</p>
-                <p class="text-3xl font-bold text-slate-800 mt-1"><?= e(number_format($completionRate, 1)) ?>%</p>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Completion rate</p>
+                <p class="text-3xl font-bold text-slate-800 mt-2"><?= e(number_format($analysisCompletionRate, 1)) ?>%</p>
             </article>
-            <article class="bg-white shadow rounded-xl p-5">
-                <p class="text-sm text-slate-500">Average confidence</p>
-                <p class="text-3xl font-bold text-slate-800 mt-1"><?= e(number_format($overallAvgConfidence, 2)) ?></p>
-                <p class="text-xs text-slate-500 mt-1">Based on task responses (1-5 scale)</p>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Participants per condition</p>
+                <div class="mt-2 text-sm text-slate-700 space-y-1">
+                    <?php foreach ($participantsPerCondition as $condition => $count): ?>
+                        <div><?= e((string) $condition) ?>: <?= e((string) $count) ?></div>
+                    <?php endforeach; ?>
+                </div>
             </article>
-            <article class="bg-white shadow rounded-xl p-5">
-                <p class="text-sm text-slate-500">Raffle entries</p>
-                <p class="text-3xl font-bold text-slate-800 mt-1"><?= e((string) $raffleEntriesCount) ?></p>
-                <p class="text-xs text-slate-500 mt-1">Unique participants with an email entry</p>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Uncoded “Other” responses</p>
+                <p class="text-3xl font-bold <?= $uncodedOtherCount > 0 ? 'text-amber-700' : 'text-slate-800' ?> mt-2"><?= e((string) $uncodedOtherCount) ?></p>
+            </article>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Missing final_decision_correct</p>
+                <p class="text-3xl font-bold <?= $nullFinalDecisionCount > 0 ? 'text-amber-700' : 'text-slate-800' ?> mt-2"><?= e((string) $nullFinalDecisionCount) ?></p>
+            </article>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Low-quality responses</p>
+                <p class="text-3xl font-bold text-slate-800 mt-2"><?= e((string) $lowQualityCount) ?></p>
+            </article>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Average task duration</p>
+                <p class="text-3xl font-bold text-slate-800 mt-2"><?= e(number_format($avgTaskDurationSeconds, 1)) ?>s</p>
+            </article>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Average post-survey duration</p>
+                <p class="text-3xl font-bold text-slate-800 mt-2"><?= e(number_format($avgPostsurveyDurationSeconds, 1)) ?>s</p>
             </article>
         </section>
 
         <section class="bg-white shadow rounded-xl p-6 mb-6">
-            <h2 class="text-lg font-semibold text-slate-800 mb-4">Respondents Per Condition</h2>
-            <div class="space-y-3">
-                <?php $maxRespondents = max([1, ...array_values($respondentsByCondition)]); ?>
-                <?php foreach ($conditionNames as $condition): ?>
-                    <?php
-                    $value = $respondentsByCondition[$condition] ?? 0;
-                    $width = ($value / $maxRespondents) * 100.0;
-                    ?>
-                    <div>
-                        <div class="flex items-center justify-between text-sm mb-1">
-                            <span class="font-medium text-slate-700"><?= e($condition) ?></span>
-                            <span class="text-slate-600"><?= e((string) $value) ?></span>
-                        </div>
-                        <div class="w-full h-3 bg-slate-100 rounded">
-                        <div class="h-3 accent-bg rounded" style="width: <?= e(number_format($width, 2, '.', '')) ?>%"></div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Analysis Exports</h2>
+            <div class="flex flex-wrap gap-3">
+                <a
+                    href="/export_csv.php?table=analysis_task_level"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download Task-Level Analysis CSV
+                </a>
+                <a
+                    href="/export_csv.php?table=analysis_participant_summary"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download Participant Summary CSV
+                </a>
+                <a
+                    href="/export_csv.php?table=document_events"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download Raw document_events CSV
+                </a>
+                <a
+                    href="/export_csv.php?table=task_responses"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download Raw task_responses CSV
+                </a>
+                <a
+                    href="/export_csv.php?table=postsurvey_responses"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download Raw postsurvey_responses CSV
+                </a>
             </div>
         </section>
 
-        <section class="bg-white shadow rounded-xl p-6 overflow-x-auto">
-            <h2 class="text-lg font-semibold text-slate-800 mb-4">Condition Metrics</h2>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Participant-Level Analysis View</h2>
+            <p class="text-xs text-slate-500 mb-3">Showing <?= e((string) count($analysisParticipantRows)) ?> participant rows.</p>
+            <?php if (empty($analysisParticipantRows)): ?>
+                <p class="text-sm text-slate-600">No participant-level analysis rows found.</p>
+            <?php else: ?>
+                <?php $participantAnalysisColumns = array_keys($analysisParticipantRows[0]); ?>
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-200 text-slate-600">
+                            <?php foreach ($participantAnalysisColumns as $column): ?>
+                                <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap"><?= e((string) $column) ?></th>
+                            <?php endforeach; ?>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($analysisParticipantRows as $row): ?>
+                            <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                <?php foreach ($participantAnalysisColumns as $column): ?>
+                                    <?php $rawValue = $row[$column] ?? null; ?>
+                                    <td class="py-2 pr-3 text-slate-700 align-top whitespace-nowrap"><?= e($rawValue === null ? '' : (string) $rawValue) ?></td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </section>
+
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Task-Level Analysis View</h2>
+            <p class="text-xs text-slate-500 mb-3">Showing <?= e((string) count($analysisTaskLevelRows)) ?> task rows.</p>
+            <?php if (empty($analysisTaskLevelRows)): ?>
+                <p class="text-sm text-slate-600">No task-level analysis rows found.</p>
+            <?php else: ?>
+                <?php
+                $taskAnalysisColumns = array_values(array_filter(
+                    array_keys($analysisTaskLevelRows[0]),
+                    static fn (string $column): bool => $column !== 'active_reflection'
+                ));
+                ?>
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-200 text-slate-600">
+                            <?php foreach ($taskAnalysisColumns as $column): ?>
+                                <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap"><?= e((string) $column) ?></th>
+                            <?php endforeach; ?>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($analysisTaskLevelRows as $row): ?>
+                            <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                <?php foreach ($taskAnalysisColumns as $column): ?>
+                                    <?php
+                                    $rawValue = $row[$column] ?? null;
+                                    $displayValue = $rawValue === null ? '' : (string) $rawValue;
+                                    ?>
+                                    <td class="py-2 pr-3 text-slate-700 align-top whitespace-nowrap"><?= e($displayValue) ?></td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </section>
+
+        <section id="other-coding" class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Code Uncoded “Other” Responses</h2>
+            <?php if (empty($uncodedOtherRows)): ?>
+                <p class="text-sm text-slate-600">No uncoded “Other” responses found.</p>
+            <?php else: ?>
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-200 text-slate-600">
+                            <th class="text-left py-2 pr-3">Participant</th>
+                            <th class="text-left py-2 pr-3">Condition</th>
+                            <th class="text-left py-2 pr-3">Task</th>
+                            <th class="text-left py-2 pr-3">Response text</th>
+                            <th class="text-left py-2 pr-3">Verification intention</th>
+                            <th class="text-left py-2 pr-3">Code</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($uncodedOtherRows as $uncodedRow): ?>
+                            <?php
+                            $responseText = trim((string) ($uncodedRow['custom_response_text'] ?? ''));
+                            if ($responseText === '') {
+                                $responseText = trim((string) ($uncodedRow['final_response'] ?? ''));
+                            }
+                            if ($responseText === '') {
+                                $responseText = '(empty response)';
+                            }
+                            ?>
+                            <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">
+                                    <?= e((string) $uncodedRow['participant_id']) ?>
+                                    <?php if ((string) $uncodedRow['participant_code'] !== ''): ?>
+                                        <span class="text-slate-500">(<?= e((string) $uncodedRow['participant_code']) ?>)</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap"><?= e((string) $uncodedRow['condition_name']) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap"><?= e((string) $uncodedRow['task_number']) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 max-w-lg whitespace-normal break-words"><?= e($responseText) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 max-w-xs whitespace-normal break-words"><?= e((string) $uncodedRow['verification_intention']) ?></td>
+                                <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">
+                                    <form method="post" action="/dashboard/" class="flex items-center gap-2">
+                                        <input type="hidden" name="dashboard_action" value="code_other_response">
+                                        <input type="hidden" name="csrf_token" value="<?= e($dashboardCsrfToken) ?>">
+                                        <input type="hidden" name="participant_id" value="<?= e((string) $uncodedRow['participant_id']) ?>">
+                                        <input type="hidden" name="task_number" value="<?= e((string) $uncodedRow['task_number']) ?>">
+                                        <input type="hidden" name="return_url" value="/dashboard/?tab=overview#other-coding">
+                                        <select name="manual_response_correctness" class="rounded border border-slate-300 px-2 py-1 text-sm" required>
+                                            <option value="" selected disabled>Choose...</option>
+                                            <option value="1">Correct (1)</option>
+                                            <option value="0">Incorrect (0)</option>
+                                        </select>
+                                        <button
+                                            type="submit"
+                                            class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded border border-slate-300"
+                                        >
+                                            Save
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </section>
+
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Condition Comparison</h2>
             <table class="min-w-full text-sm">
                 <thead>
                     <tr class="border-b border-slate-200 text-slate-600">
                         <th class="text-left py-2 pr-4">Condition</th>
-                        <th class="text-right py-2 px-2">Completion rate</th>
+                        <th class="text-right py-2 px-2">Participants</th>
+                        <th class="text-right py-2 px-2">Completed (%)</th>
+                        <th class="text-right py-2 px-2">Avg correct (%)</th>
                         <th class="text-right py-2 px-2">Avg docs opened</th>
-                        <th class="text-right py-2 px-2">Avg inspection time (s)</th>
-                        <th class="text-right py-2 px-2">% opened relevant doc</th>
-                        <th class="text-right py-2 px-2">Decision correctness (%)</th>
-                        <th class="text-right py-2 pl-2">Avg confidence</th>
+                        <th class="text-right py-2 px-2">Avg confidence</th>
+                        <th class="text-right py-2 px-2">Relevant doc open rate (%)</th>
+                        <th class="text-right py-2 pl-2">Overreliance errors (sum)</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($conditionNames as $condition): ?>
+                    <?php foreach ($analysisConditionStats as $condition => $stats): ?>
+                        <?php
+                        $participants = (int) $stats['participants'];
+                        $completed = (int) $stats['completed'];
+                        $completedPct = $participants > 0 ? ($completed / $participants) * 100.0 : 0.0;
+                        $avgCorrectPct = $stats['correct_pct_count'] > 0
+                            ? $stats['correct_pct_sum'] / $stats['correct_pct_count']
+                            : 0.0;
+                        $avgDocsOpened = $stats['avg_docs_opened_count'] > 0
+                            ? $stats['avg_docs_opened_sum'] / $stats['avg_docs_opened_count']
+                            : 0.0;
+                        $avgConfidence = $stats['avg_confidence_count'] > 0
+                            ? $stats['avg_confidence_sum'] / $stats['avg_confidence_count']
+                            : 0.0;
+                        $relevantRatePct = $stats['relevant_rate_count'] > 0
+                            ? ($stats['relevant_rate_sum'] / $stats['relevant_rate_count']) * 100.0
+                            : 0.0;
+                        ?>
                         <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
-                            <td class="py-2 pr-4 font-medium text-slate-800"><?= e($condition) ?></td>
-                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($completionByCondition[$condition] ?? 0.0, 1)) ?>%</td>
-                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgDocsOpenedByCondition[$condition] ?? 0.0, 2)) ?></td>
-                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgInspectionSecondsByCondition[$condition] ?? 0.0, 2)) ?></td>
-                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($openedRelevantPctByCondition[$condition] ?? 0.0, 1)) ?>%</td>
-                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($decisionCorrectPctByCondition[$condition] ?? 0.0, 1)) ?>%</td>
-                            <td class="py-2 pl-2 text-right text-slate-700"><?= e(number_format($avgConfidenceByCondition[$condition] ?? 0.0, 2)) ?></td>
+                            <td class="py-2 pr-4 font-medium text-slate-800"><?= e((string) $condition) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e((string) $participants) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($completedPct, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgCorrectPct, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgDocsOpened, 2)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgConfidence, 2)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($relevantRatePct, 1)) ?>%</td>
+                            <td class="py-2 pl-2 text-right text-slate-700"><?= e((string) $stats['overreliance_sum']) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
-            <p class="text-xs text-slate-500 mt-4">
-                Decision correctness is a proxy derived from available fields in <code>task_responses</code>:
-                using AI when <code>ai_correct=1</code>, and not using AI when <code>ai_correct=0</code>.
+        </section>
+
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Condition × AI Correctness</h2>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 text-slate-600">
+                        <th class="text-left py-2 pr-4">Condition</th>
+                        <th class="text-right py-2 px-2">AI correct tasks (n)</th>
+                        <th class="text-right py-2 px-2">AI correct final decision (%)</th>
+                        <th class="text-right py-2 px-2">AI incorrect tasks (n)</th>
+                        <th class="text-right py-2 pl-2">AI incorrect final decision (%)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($analysisConditionAiBuckets as $condition => $aiBucket): ?>
+                        <?php
+                        $aiCorrectN = (int) ($aiBucket[1]['n'] ?? 0);
+                        $aiCorrectPct = $aiCorrectN > 0
+                            ? (((int) ($aiBucket[1]['correct'] ?? 0)) / $aiCorrectN) * 100.0
+                            : 0.0;
+                        $aiIncorrectN = (int) ($aiBucket[0]['n'] ?? 0);
+                        $aiIncorrectPct = $aiIncorrectN > 0
+                            ? (((int) ($aiBucket[0]['correct'] ?? 0)) / $aiIncorrectN) * 100.0
+                            : 0.0;
+                        ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                            <td class="py-2 pr-4 font-medium text-slate-800"><?= e((string) $condition) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e((string) $aiCorrectN) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($aiCorrectPct, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e((string) $aiIncorrectN) ?></td>
+                            <td class="py-2 pl-2 text-right text-slate-700"><?= e(number_format($aiIncorrectPct, 1)) ?>%</td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <article class="bg-white shadow rounded-xl p-6">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Correctness Distribution (0/2, 1/2, 2/2)</h2>
+                <?php $correctDistMax = max([1, ...array_values($correctDist)]); ?>
+                <div class="space-y-3">
+                    <?php foreach ($correctDist as $label => $count): ?>
+                        <?php $barWidth = ($count / $correctDistMax) * 100.0; ?>
+                        <div>
+                            <div class="flex items-center justify-between text-sm mb-1">
+                                <span class="font-medium text-slate-700"><?= e($label) ?></span>
+                                <span class="text-slate-600"><?= e((string) $count) ?></span>
+                            </div>
+                            <div class="w-full h-3 bg-slate-100 rounded">
+                                <div class="h-3 accent-bg rounded" style="width: <?= e(number_format($barWidth, 2, '.', '')) ?>%"></div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </article>
+            <article class="bg-white shadow rounded-xl p-6">
+                <h2 class="text-lg font-semibold text-slate-800 mb-4">Relevant Document Open Rate Distribution</h2>
+                <?php $relevantDistMax = max([1, ...array_values($relevantDist)]); ?>
+                <div class="space-y-3">
+                    <?php foreach ($relevantDist as $label => $count): ?>
+                        <?php $barWidth = ($count / $relevantDistMax) * 100.0; ?>
+                        <div>
+                            <div class="flex items-center justify-between text-sm mb-1">
+                                <span class="font-medium text-slate-700"><?= e($label) ?></span>
+                                <span class="text-slate-600"><?= e((string) $count) ?></span>
+                            </div>
+                            <div class="w-full h-3 bg-slate-100 rounded">
+                                <div class="h-3 accent-bg rounded" style="width: <?= e(number_format($barWidth, 2, '.', '')) ?>%"></div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </article>
+        </section>
+    <?php elseif ($currentTab === 'condition_results'): ?>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Condition Comparison (Analysis Cohort)</h2>
+            <p class="text-xs text-slate-500 mb-3">
+                Cohort filter: completed participants with tasks_completed=2 and post-survey available.
             </p>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 text-slate-600">
+                        <th class="text-left py-2 pr-3">condition_name</th>
+                        <th class="text-right py-2 px-2">N completed</th>
+                        <th class="text-right py-2 px-2">mean correct_count (out of 2)</th>
+                        <th class="text-right py-2 px-2">correct_pct</th>
+                        <th class="text-right py-2 px-2">% with 2/2 correct</th>
+                        <th class="text-right py-2 px-2">relevant_doc_open_rate</th>
+                        <th class="text-right py-2 px-2">avg_docs_opened</th>
+                        <th class="text-right py-2 px-2">avg_relevant_doc_time_sec</th>
+                        <th class="text-right py-2 pl-2">avg_confidence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($conditionResults as $condition => $stats): ?>
+                        <?php
+                        $n = (int) $stats['n_completed'];
+                        $meanCorrectCount = $n > 0 ? ($stats['correct_count_sum'] / $n) : 0.0;
+                        $correctPct = $stats['correct_pct_count'] > 0 ? ($stats['correct_pct_sum'] / $stats['correct_pct_count']) : 0.0;
+                        $twoOfTwoPct = $n > 0 ? ((float) $stats['two_of_two'] / $n) * 100.0 : 0.0;
+                        $relevantRatePct = $stats['relevant_rate_count'] > 0 ? (($stats['relevant_rate_sum'] / $stats['relevant_rate_count']) * 100.0) : 0.0;
+                        $avgDocs = $stats['avg_docs_opened_count'] > 0 ? ($stats['avg_docs_opened_sum'] / $stats['avg_docs_opened_count']) : 0.0;
+                        $avgRelevantTime = $stats['avg_relevant_doc_time_count'] > 0 ? ($stats['avg_relevant_doc_time_sum'] / $stats['avg_relevant_doc_time_count']) : 0.0;
+                        $avgConf = $stats['avg_confidence_count'] > 0 ? ($stats['avg_confidence_sum'] / $stats['avg_confidence_count']) : 0.0;
+                        ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                            <td class="py-2 pr-3 font-medium text-slate-800"><?= e((string) $condition) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e((string) $n) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($meanCorrectCount, 2)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($correctPct, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($twoOfTwoPct, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($relevantRatePct, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgDocs, 2)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgRelevantTime, 2)) ?></td>
+                            <td class="py-2 pl-2 text-right text-slate-700"><?= e(number_format($avgConf, 2)) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </section>
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <article class="bg-white shadow rounded-xl p-6">
+                <h3 class="text-base font-semibold text-slate-800 mb-3">Mean correct_count by condition</h3>
+                <?php $maxMeanCorrect = 1.0; foreach ($conditionResults as $stats) { $maxMeanCorrect = max($maxMeanCorrect, (float) (($stats['n_completed'] ?? 0) > 0 ? ($stats['correct_count_sum'] / $stats['n_completed']) : 0.0)); } ?>
+                <div class="space-y-3">
+                    <?php foreach ($conditionResults as $condition => $stats): ?>
+                        <?php $val = (float) (($stats['n_completed'] ?? 0) > 0 ? ($stats['correct_count_sum'] / $stats['n_completed']) : 0.0); $w = ($val / $maxMeanCorrect) * 100.0; ?>
+                        <div>
+                            <div class="flex items-center justify-between text-sm mb-1"><span><?= e((string) $condition) ?></span><span><?= e(number_format($val, 2)) ?></span></div>
+                            <div class="w-full h-3 bg-slate-100 rounded"><div class="h-3 accent-bg rounded" style="width: <?= e(number_format($w, 2, '.', '')) ?>%"></div></div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </article>
+            <article class="bg-white shadow rounded-xl p-6">
+                <h3 class="text-base font-semibold text-slate-800 mb-3">Relevant doc open rate by condition</h3>
+                <div class="space-y-3">
+                    <?php foreach ($conditionResults as $condition => $stats): ?>
+                        <?php $val = (float) (($stats['relevant_rate_count'] ?? 0) > 0 ? (($stats['relevant_rate_sum'] / $stats['relevant_rate_count']) * 100.0) : 0.0); ?>
+                        <div>
+                            <div class="flex items-center justify-between text-sm mb-1"><span><?= e((string) $condition) ?></span><span><?= e(number_format($val, 1)) ?>%</span></div>
+                            <div class="w-full h-3 bg-slate-100 rounded"><div class="h-3 accent-bg rounded" style="width: <?= e(number_format($val, 2, '.', '')) ?>%"></div></div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </article>
+        </section>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">Distribution of correct_count (0/1/2) by condition</h3>
+            <table class="min-w-full text-sm">
+                <thead><tr class="border-b border-slate-200 text-slate-600"><th class="text-left py-2 pr-3">condition</th><th class="text-right py-2 px-2">0</th><th class="text-right py-2 px-2">1</th><th class="text-right py-2 pl-2">2</th></tr></thead>
+                <tbody>
+                    <?php foreach ($correctDistByCondition as $condition => $dist): ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0"><td class="py-2 pr-3"><?= e((string) $condition) ?></td><td class="py-2 px-2 text-right"><?= e((string) ($dist['0'] ?? 0)) ?></td><td class="py-2 px-2 text-right"><?= e((string) ($dist['1'] ?? 0)) ?></td><td class="py-2 pl-2 text-right"><?= e((string) ($dist['2'] ?? 0)) ?></td></tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </section>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">Distribution of relevant_doc_open_rate (0/50/100) by condition</h3>
+            <table class="min-w-full text-sm">
+                <thead><tr class="border-b border-slate-200 text-slate-600"><th class="text-left py-2 pr-3">condition</th><th class="text-right py-2 px-2">0%</th><th class="text-right py-2 px-2">50%</th><th class="text-right py-2 pl-2">100%</th></tr></thead>
+                <tbody>
+                    <?php foreach ($relevantDistByCondition as $condition => $dist): ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0"><td class="py-2 pr-3"><?= e((string) $condition) ?></td><td class="py-2 px-2 text-right"><?= e((string) ($dist['0'] ?? 0)) ?></td><td class="py-2 px-2 text-right"><?= e((string) ($dist['50'] ?? 0)) ?></td><td class="py-2 pl-2 text-right"><?= e((string) ($dist['100'] ?? 0)) ?></td></tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </section>
+    <?php elseif ($currentTab === 'calibration'): ?>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Condition × AI Correctness</h2>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 text-slate-600">
+                        <th class="text-left py-2 pr-3">condition_name</th>
+                        <th class="text-right py-2 px-2">ai_correct</th>
+                        <th class="text-right py-2 px-2">N task responses</th>
+                        <th class="text-right py-2 px-2">mean final_decision_correct</th>
+                        <th class="text-right py-2 px-2">relevant_document_opened rate</th>
+                        <th class="text-right py-2 px-2">avg confidence</th>
+                        <th class="text-right py-2 px-2">avg relevant document view time</th>
+                        <th class="text-right py-2 px-2">overreliance_error_rate (ai incorrect)</th>
+                        <th class="text-right py-2 pl-2">underreliance_or_too_strict_error_rate (ai correct)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($calibrationRows as $row): ?>
+                        <?php
+                        $meanFinal = $row['final_correct_count'] > 0 ? ($row['final_correct_sum'] / $row['final_correct_count']) : 0.0;
+                        $relevantRate = $row['relevant_open_count'] > 0 ? ($row['relevant_open_sum'] / $row['relevant_open_count']) : 0.0;
+                        $avgConf = $row['confidence_count'] > 0 ? ($row['confidence_sum'] / $row['confidence_count']) : 0.0;
+                        $avgRelevantTime = $row['relevant_time_count'] > 0 ? ($row['relevant_time_sum'] / $row['relevant_time_count']) : 0.0;
+                        $overRate = $row['overreliance_count'] > 0 ? ($row['overreliance_sum'] / $row['overreliance_count']) : null;
+                        $underRate = $row['underreliance_count'] > 0 ? ($row['underreliance_sum'] / $row['underreliance_count']) : null;
+                        ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                            <td class="py-2 pr-3"><?= e((string) $row['condition_name']) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) $row['ai_correct']) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) $row['n']) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($meanFinal, 3)) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($relevantRate * 100.0, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($avgConf, 2)) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($avgRelevantTime, 2)) ?></td>
+                            <td class="py-2 px-2 text-right"><?= $overRate === null ? '-' : e(number_format($overRate * 100.0, 1)) . '%' ?></td>
+                            <td class="py-2 pl-2 text-right"><?= $underRate === null ? '-' : e(number_format($underRate * 100.0, 1)) . '%' ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </section>
+    <?php elseif ($currentTab === 'inspection'): ?>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Inspection Behavior by Condition</h2>
+            <table class="min-w-full text-sm">
+                <thead><tr class="border-b border-slate-200 text-slate-600"><th class="text-left py-2 pr-3">condition</th><th class="text-right py-2 px-2">opened any rate</th><th class="text-right py-2 px-2">relevant opened rate</th><th class="text-right py-2 px-2">opened all docs rate</th><th class="text-right py-2 px-2">avg number_documents_opened</th><th class="text-right py-2 px-2">avg total_document_view_time_sec</th><th class="text-right py-2 pl-2">avg relevant_document_view_time_sec</th></tr></thead>
+                <tbody>
+                    <?php foreach ($inspectionRows as $condition => $row): ?>
+                        <?php
+                        $openedAny = $row['inspection_any_count'] > 0 ? ($row['inspection_any_sum'] / $row['inspection_any_count']) : 0.0;
+                        $openedRelevant = $row['inspection_relevant_count'] > 0 ? ($row['inspection_relevant_sum'] / $row['inspection_relevant_count']) : 0.0;
+                        $openedAll = $row['opened_all_count'] > 0 ? ($row['opened_all_sum'] / $row['opened_all_count']) : 0.0;
+                        $avgDocs = $row['docs_opened_count'] > 0 ? ($row['docs_opened_sum'] / $row['docs_opened_count']) : 0.0;
+                        $avgTotalTime = $row['total_time_count'] > 0 ? ($row['total_time_sum'] / $row['total_time_count']) : 0.0;
+                        $avgRelevantTime = $row['relevant_time_count'] > 0 ? ($row['relevant_time_sum'] / $row['relevant_time_count']) : 0.0;
+                        ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                            <td class="py-2 pr-3"><?= e((string) $condition) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($openedAny * 100.0, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($openedRelevant * 100.0, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($openedAll * 100.0, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($avgDocs, 2)) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format($avgTotalTime, 2)) ?></td>
+                            <td class="py-2 pl-2 text-right"><?= e(number_format($avgRelevantTime, 2)) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </section>
+        <section class="bg-white shadow rounded-xl p-6 mb-6">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">Document inspection by condition (opened any rate)</h3>
+            <div class="space-y-3">
+                <?php foreach ($inspectionRows as $condition => $row): ?>
+                    <?php $openedAnyPct = $row['inspection_any_count'] > 0 ? ($row['inspection_any_sum'] / $row['inspection_any_count']) * 100.0 : 0.0; ?>
+                    <div>
+                        <div class="flex items-center justify-between text-sm mb-1"><span><?= e((string) $condition) ?></span><span><?= e(number_format($openedAnyPct, 1)) ?>%</span></div>
+                        <div class="w-full h-3 bg-slate-100 rounded"><div class="h-3 accent-bg rounded" style="width: <?= e(number_format($openedAnyPct, 2, '.', '')) ?>%"></div></div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </section>
+    <?php elseif ($currentTab === 'participants_analysis'): ?>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Participants (analysis_participant_summary)</h2>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 text-slate-600">
+                        <th class="text-left py-2 pr-3">participant_code</th>
+                        <th class="text-left py-2 pr-3">condition_name</th>
+                        <th class="text-left py-2 pr-3">completed_at</th>
+                        <th class="text-right py-2 px-2">tasks_completed</th>
+                        <th class="text-right py-2 px-2">correct_count</th>
+                        <th class="text-right py-2 px-2">correct_pct</th>
+                        <th class="text-right py-2 px-2">relevant_doc_open_rate</th>
+                        <th class="text-right py-2 px-2">avg_confidence</th>
+                        <th class="text-right py-2 px-2">ai_literacy_score</th>
+                        <th class="text-right py-2 px-2">crt_score</th>
+                        <th class="text-right py-2 px-2">serious_effort</th>
+                        <th class="text-right py-2 px-2">low_quality_response</th>
+                        <th class="text-right py-2 pl-2">uncoded_other_count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($analysisCohortParticipants as $row): ?>
+                        <?php $participantId = (int) ($row['participant_id'] ?? 0); ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                            <td class="py-2 pr-3"><a href="/dashboard/?tab=participant&participant_id=<?= e((string) $participantId) ?>" class="accent-text hover:underline font-medium"><?= e((string) ($row['participant_code'] ?? '')) ?></a></td>
+                            <td class="py-2 pr-3"><?= e((string) ($row['condition_name'] ?? '')) ?></td>
+                            <td class="py-2 pr-3"><?= e(format_dashboard_datetime((string) ($row['completed_at'] ?? ''))) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['tasks_completed'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['correct_count'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format((float) ($row['correct_pct'] ?? 0), 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format(((float) ($row['relevant_doc_open_rate'] ?? 0)) * 100.0, 1)) ?>%</td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format((float) ($row['avg_confidence'] ?? 0), 2)) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format((float) ($row['ai_literacy_score'] ?? 0), 2)) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['crt_score'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['serious_effort'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['low_quality_response'] ?? '')) ?></td>
+                            <td class="py-2 pl-2 text-right"><?= e((string) ($participantUncodedOtherCount[$participantId] ?? 0)) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </section>
+    <?php elseif ($currentTab === 'task_level_analysis'): ?>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Task-Level Data (analysis_task_level)</h2>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 text-slate-600">
+                        <th class="text-left py-2 pr-3">participant_code</th>
+                        <th class="text-left py-2 pr-3">condition_name</th>
+                        <th class="text-right py-2 px-2">task_number</th>
+                        <th class="text-right py-2 px-2">ai_correct</th>
+                        <th class="text-left py-2 px-2">selected_option_key</th>
+                        <th class="text-right py-2 px-2">final_decision_correct</th>
+                        <th class="text-right py-2 px-2">relevant_document_opened</th>
+                        <th class="text-right py-2 px-2">number_documents_opened</th>
+                        <th class="text-right py-2 px-2">total_document_view_time_sec</th>
+                        <th class="text-right py-2 px-2">relevant_document_view_time_sec</th>
+                        <th class="text-right py-2 px-2">confidence</th>
+                        <th class="text-right py-2 px-2">manual_code_required</th>
+                        <th class="text-right py-2 px-2">manual_response_correctness</th>
+                        <th class="text-right py-2 pl-2">low_quality_response</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($analysisCohortTaskRows as $row): ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                            <td class="py-2 pr-3"><?= e((string) ($row['participant_code'] ?? '')) ?></td>
+                            <td class="py-2 pr-3"><?= e((string) ($row['condition_name'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['task_number'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['ai_correct'] ?? '')) ?></td>
+                            <td class="py-2 px-2"><?= e((string) ($row['selected_option_key'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['final_decision_correct'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['relevant_document_opened'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['number_documents_opened'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format((float) ($row['total_document_view_time_sec'] ?? 0), 2)) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e(number_format((float) ($row['relevant_document_view_time_sec'] ?? 0), 2)) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['confidence'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['manual_code_required'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['manual_response_correctness'] ?? '')) ?></td>
+                            <td class="py-2 pl-2 text-right"><?= e((string) ($row['low_quality_response'] ?? '')) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </section>
     <?php elseif ($currentTab === 'data'): ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4">
