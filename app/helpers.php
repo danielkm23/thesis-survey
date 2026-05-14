@@ -131,7 +131,14 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
  */
 function redirect(string $path): never
 {
-    header('Location: ' . $path);
+    $location = trim($path);
+    if ($location === '') {
+        $location = '/';
+    } elseif (!preg_match('#^(?:https?:)?//#i', $location) && !str_starts_with($location, '/')) {
+        $location = '/' . $location;
+    }
+
+    header('Location: ' . $location);
     exit;
 }
 
