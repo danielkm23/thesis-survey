@@ -27,11 +27,11 @@ require __DIR__ . '/../views/header.php';
             <li>your role;</li>
             <li>a message from a colleague;</li>
             <li>an AI-generated draft response;</li>
-            <li>available company documents.</li>
+            <li>available company information.</li>
         </ol>
 
         <p class="text-slate-700 mb-4">
-            You will then choose the response you would send to the colleague. Company documents are available during each task and may be used to check the information before deciding. You will also indicate how confident you are in your decision.
+            You will then choose the response you would send to the colleague. Company information is available during each task and may help you make your decision. You will also indicate how confident you are in your decision.
         </p>
 
         <p class="text-slate-700 mb-4">Please answer as you would in a realistic workplace situation.</p>

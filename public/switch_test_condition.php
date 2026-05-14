@@ -41,7 +41,7 @@ $participantCode = '';
 $startedAt = date('Y-m-d H:i:s');
 
 for ($attempt = 0; $attempt < 5; $attempt++) {
-    $participantCode = TEST_PARTICIPANT_PREFIX . strtoupper(bin2hex(random_bytes(4)));
+    $participantCode = generate_test_participant_code($pdo);
     try {
         $stmt = $pdo->prepare(
             'INSERT INTO participants (participant_code, condition_name, started_at, completed_at)

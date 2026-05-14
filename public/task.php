@@ -548,8 +548,8 @@ require __DIR__ . '/../views/header.php';
             <h1 class="text-xl md:text-[1.65rem] font-bold text-slate-800 mb-1.5 md:mb-1.5"><?= e($task['title']) ?></h1>
             <?php if ($taskView === 'review'): ?>
                 <?php if ((int) $task['number'] === 1): ?>
-                    <p class="text-base text-slate-700 leading-6">You work in finance administration and advise colleagues on expense policy, but managers make final approval decisions.</p>
-                    <p class="text-base text-slate-700 leading-6 mt-2">Read the colleague&rsquo;s message and the AI-generated draft response. Company documents are available if needed. This information will remain available on the next page, where you choose your response.</p>
+                    <p class="text-base text-slate-700 leading-6">You work in finance administration and help colleagues understand expense policy.</p>
+                    <p class="text-base text-slate-700 leading-6 mt-2">Read the colleague&rsquo;s message and the AI-generated draft response. Company information is available if needed. This information will remain available on the next page, where you choose your response.</p>
                 <?php else: ?>
                     <p class="text-base text-slate-700 leading-6">You work in operations and help colleagues follow company policy for meetings, data handling, and client communication.</p>
                     <p class="text-base text-slate-700 leading-6 mt-2">Read the colleague&rsquo;s message and the AI-generated draft response. Company documents are available if needed. This information will remain available on the next page, where you choose your response.</p>
@@ -602,8 +602,8 @@ require __DIR__ . '/../views/header.php';
 
                     <aside class="md:col-span-1 md:sticky md:top-5 self-start">
                         <section class="task-card">
-                            <h2 class="task-card-title task-card-title-sentence">Available company documents</h2>
-                            <p class="text-sm text-slate-600 mb-2">You may open these documents to check the relevant policy details before choosing your response.</p>
+                            <h2 class="task-card-title task-card-title-sentence">Available company information</h2>
+                            <p class="text-sm text-slate-600 mb-2">The items below are available if you need additional information while making your decision.</p>
                             <div class="space-y-1.5">
                                 <?php foreach ($documentsInDisplayOrder as $document): ?>
                                     <button
@@ -674,8 +674,8 @@ require __DIR__ . '/../views/header.php';
                         </details>
 
                         <section class="task-card md:hidden">
-                            <h2 class="task-card-title task-card-title-sentence">Available company documents</h2>
-                            <p class="text-sm text-slate-600 mb-2">You may open these documents to check the relevant policy details before choosing your response.</p>
+                            <h2 class="task-card-title task-card-title-sentence">Available company information</h2>
+                            <p class="text-sm text-slate-600 mb-2">The items below are available if you need additional information while making your decision.</p>
                             <div class="space-y-1.5">
                                 <?php foreach ($documentsInDisplayOrder as $document): ?>
                                     <button
@@ -711,7 +711,7 @@ require __DIR__ . '/../views/header.php';
                                             maxlength="180"
                                             required
                                             class="w-full rounded-lg border border-slate-300 px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="I would consider..."
+                                            placeholder="I would check..."
                                             value="<?= e($reviewVerificationValue) ?>"
                                         >
                                     </div>
@@ -778,8 +778,8 @@ require __DIR__ . '/../views/header.php';
 
                     <aside class="hidden md:block md:col-span-1 md:sticky md:top-5 self-start">
                         <section class="task-card">
-                            <h2 class="task-card-title task-card-title-sentence">Available company documents</h2>
-                            <p class="text-sm text-slate-600 mb-2">You may open these documents to check the relevant policy details before choosing your response.</p>
+                            <h2 class="task-card-title task-card-title-sentence">Available company information</h2>
+                            <p class="text-sm text-slate-600 mb-2">The items below are available if you need additional information while making your decision.</p>
                             <div class="space-y-1.5">
                                 <?php foreach ($documentsInDisplayOrder as $document): ?>
                                     <button

@@ -9,22 +9,22 @@ return [
         // Design intent: Task 2 uses an intentionally AI-incorrect draft.
         'ai_correct' => false,
         'decision_summary' => 'Colleague request: record an upcoming client meeting for internal training; asks whether internal-only recording is allowed under policy; asks what to do before the meeting.',
-        'scenario' => "Quick policy check: we have a client meeting next week, and I want to record it for internal training.\n\nIf the recording stays internal, is this allowed under company policy?\n\nWhat should I do before the meeting?",
+        'scenario' => "Quick policy check: we have a client meeting next week, and I want to record it for internal training purposes.\n\nAll participants have already agreed to being recorded, and the recording would stay internal and be stored in the company’s approved IT system.\n\nIs this allowed under company policy? What should I do before the meeting?",
         'work_task' => "You work as a junior operations coordinator at a mid-sized international company. Part of your role is to help colleagues follow internal policies for meetings, data handling, and client communication. You do not give legal approval yourself, but you are expected to point colleagues to the correct policy requirements before they take action.\n\nA colleague has sent you the message below. An internal AI assistant has also generated a draft response. Your task is to decide what you would actually send back to the colleague.\n\nYou may consult the available company documents before making your decision.",
         'ai_prompt' => "Write a short internal response to this message based on the company policy documents.\nEnsure that your response reflects the relevant rules and requirements.",
-        'ai_output' => "This recording is likely allowed because it has an internal training purpose and would be stored in an approved company system. Access should be limited to relevant employees.",
+        'ai_output' => "The meeting can be recorded because it has a clear internal training purpose, all participants have agreed to being recorded, and the recording will be stored in the company’s approved IT system.",
         'response_options' => [
             [
                 'key' => 'ai_consistent_wrong',
-                'text' => "This is likely allowed because it is for internal training and can be stored securely.",
+                'text' => "The meeting can be recorded because it has an internal training purpose, participants have agreed, and the recording will be stored in the approved company system.",
             ],
             [
                 'key' => 'correct',
-                'text' => "This can only proceed if all participants give explicit consent and a manager approves it in advance.",
+                'text' => "This can proceed only if manager approval is obtained before the meeting is recorded.",
             ],
             [
                 'key' => 'too_strict',
-                'text' => "This cannot be recorded and should be escalated to legal immediately.",
+                'text' => "This cannot be recorded because client meetings may not be used for internal training.",
             ],
             [
                 'key' => 'other',
@@ -34,13 +34,14 @@ return [
         'documents' => [
             [
                 'key' => 'meeting_recording_consent_policy',
-                'title' => 'Meeting Recording and Consent Policy',
+                'title' => 'Meeting Recording Policy',
                 'relevant' => true,
                 'content' => "Key rules:
 - Meetings may only be recorded when there is a clear business purpose.
 - Client meetings require explicit consent from all participants.
-- Manager approval is required before recording.
 - Recordings must be stored in approved company systems.
+- Sharing a meeting agenda is recommended.
+- Manager approval is required before recording.
 - If consent or approval is missing, the meeting must not be recorded.",
             ],
             [
@@ -74,7 +75,7 @@ return [
         'work_task' => "You work in the finance and administration department of a mid-sized international company. Part of your role is to give colleagues guidance on expense claims based on company policy. You do not make the final reimbursement decision yourself; claims that require an exception or approval are reviewed by a manager.\n\nA colleague has sent you the message below. An internal AI assistant has also generated a draft response. Your task is to decide what you would actually send back to the colleague.\n\nYou may consult the available company documents before making your decision.",
         'scenario' => "I submitted a dinner expense from a recent business trip.\n\nThe amount was EUR 68, and I did not get prior approval because the meeting ran late and nearby options were limited.\n\nI kept the receipt and documented the meeting purpose in the expense system. Can this still be reimbursed under policy?",
         'ai_prompt' => "Write a short internal response to this message based on the company policy documents.\nEnsure that your response reflects the relevant rules and requirements.",
-        'ai_output' => "The claim cannot be approved automatically because it appears to exceed the normal dinner allowance and prior approval was not obtained. However, a manager may still review it as an exception if the receipt and explanation are complete.",
+        'ai_output' => "The claim cannot be approved automatically because it exceeds the normal dinner allowance and prior approval was not obtained. However, a manager may still review it as an exception if the receipt and explanation are complete.",
         'response_options' => [
             [
                 'key' => 'ai_consistent_wrong',

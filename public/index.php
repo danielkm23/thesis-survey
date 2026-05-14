@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     for ($attempt = 0; $attempt < 5; $attempt++) {
         $participantCode = generate_participant_code();
         if ($isTestSession) {
-            $participantCode = TEST_PARTICIPANT_PREFIX . strtoupper(bin2hex(random_bytes(4)));
+            $participantCode = generate_test_participant_code($pdo);
         }
 
         try {

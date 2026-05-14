@@ -34,6 +34,33 @@ function generate_participant_code(): string
 }
 
 /**
+ * Generates a sequential test participant code (for example TEST-0001).
+ */
+function generate_test_participant_code(PDO $pdo): string
+{
+    $prefix = defined('TEST_PARTICIPANT_PREFIX') ? (string) TEST_PARTICIPANT_PREFIX : 'TEST-';
+    $startPos = max(1, strlen($prefix) + 1);
+    $prefixLike = $prefix . '%';
+    $prefixRegex = '^' . preg_quote($prefix, '/') . '[0-9]+$';
+
+    $stmt = $pdo->prepare(
+        'SELECT MAX(CAST(SUBSTRING(participant_code, :start_pos) AS UNSIGNED)) AS max_suffix
+         FROM participants
+         WHERE participant_code LIKE :prefix_like
+           AND participant_code REGEXP :prefix_regex'
+    );
+    $stmt->bindValue(':start_pos', $startPos, PDO::PARAM_INT);
+    $stmt->bindValue(':prefix_like', $prefixLike, PDO::PARAM_STR);
+    $stmt->bindValue(':prefix_regex', $prefixRegex, PDO::PARAM_STR);
+    $stmt->execute();
+
+    $maxSuffix = (int) ($stmt->fetchColumn() ?? 0);
+    $nextSuffix = $maxSuffix + 1;
+
+    return $prefix . str_pad((string) $nextSuffix, 4, '0', STR_PAD_LEFT);
+}
+
+/**
  * Returns one random study condition.
  */
 function choose_random_condition(): string
