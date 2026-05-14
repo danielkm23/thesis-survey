@@ -179,7 +179,7 @@ if ($elapsedSeconds < 3) {
 
 $taskSubmittedAt = date('Y-m-d H:i:s', $taskSubmittedTs);
 session_set('task_' . $taskNumber . '_total_time_seconds', $elapsedSeconds);
-$taskShortTimeFlag = $elapsedSeconds < 15 ? 1 : 0;
+$taskShortTimeFlag = $elapsedSeconds < 30 ? 1 : 0;
 $activeReflectionParts = [
     'selected_response_option=' . $selectedResponseOption,
     'selected_option_key=' . $selectedOptionKey,

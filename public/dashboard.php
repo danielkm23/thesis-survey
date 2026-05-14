@@ -135,6 +135,49 @@ function extract_reflection_value(string $reflection, string $key): ?string
     return $trimmed === '' ? null : $trimmed;
 }
 
+function condition_sort_weight(string $condition): int
+{
+    $order = [
+        'control' => 0,
+        'passive' => 1,
+        'active' => 2,
+    ];
+    return $order[$condition] ?? 99;
+}
+
+/**
+ * Sort condition labels using the study sequence control -> passive -> active.
+ * Unknown labels are placed after known conditions in alphabetical order.
+ */
+function sort_condition_names(array $conditionNames): array
+{
+    usort($conditionNames, static function (string $a, string $b): int {
+        $aWeight = condition_sort_weight($a);
+        $bWeight = condition_sort_weight($b);
+        if ($aWeight !== $bWeight) {
+            return $aWeight <=> $bWeight;
+        }
+        return strcmp($a, $b);
+    });
+    return $conditionNames;
+}
+
+/**
+ * Sort associative arrays keyed by condition using study sequence.
+ */
+function sort_condition_keyed_array(array $rowsByCondition): array
+{
+    uksort($rowsByCondition, static function (string $a, string $b): int {
+        $aWeight = condition_sort_weight($a);
+        $bWeight = condition_sort_weight($b);
+        if ($aWeight !== $bWeight) {
+            return $aWeight <=> $bWeight;
+        }
+        return strcmp($a, $b);
+    });
+    return $rowsByCondition;
+}
+
 function ensure_dashboard_trash_table(PDO $pdo): void
 {
     $pdo->exec(
@@ -877,6 +920,10 @@ foreach ($conditionRows as $row) {
         ? ($completed / $respondents) * 100.0
         : 0.0;
 }
+$conditionNames = sort_condition_names($conditionNames);
+$respondentsByCondition = sort_condition_keyed_array($respondentsByCondition);
+$completedByCondition = sort_condition_keyed_array($completedByCondition);
+$completionByCondition = sort_condition_keyed_array($completionByCondition);
 
 /**
  * Average unique documents opened per participant by condition.
@@ -1438,18 +1485,6 @@ foreach ($analysisParticipantRows as $participantRow) {
 }
 
 foreach ($analysisTaskLevelRows as $taskRow) {
-    $condition = (string) ($taskRow['condition_name'] ?? 'unknown');
-    $aiCorrect = (int) ($taskRow['ai_correct'] ?? 0);
-    if (!isset($analysisConditionAiBuckets[$condition])) {
-        $analysisConditionAiBuckets[$condition] = [
-            0 => ['n' => 0, 'correct' => 0],
-            1 => ['n' => 0, 'correct' => 0],
-        ];
-    }
-    $analysisConditionAiBuckets[$condition][$aiCorrect]['n']++;
-    if (($taskRow['final_decision_correct'] ?? null) === 1) {
-        $analysisConditionAiBuckets[$condition][$aiCorrect]['correct']++;
-    }
     if ((int) ($taskRow['manual_code_required'] ?? 0) === 1) {
         $manualCodeRequiredCount++;
     }
@@ -1501,6 +1536,25 @@ $analysisCohortTaskRows = array_values(array_filter(
     $analysisTaskLevelRows,
     static fn (array $row): bool => isset($analysisCohortParticipantIds[(int) ($row['participant_id'] ?? 0)])
 ));
+
+$analysisConditionAiBuckets = [];
+foreach ($analysisCohortTaskRows as $taskRow) {
+    $condition = (string) ($taskRow['condition_name'] ?? 'unknown');
+    $aiCorrect = (int) ($taskRow['ai_correct'] ?? 0);
+    if (!isset($analysisConditionAiBuckets[$condition])) {
+        $analysisConditionAiBuckets[$condition] = [
+            0 => ['n' => 0, 'correct' => 0],
+            1 => ['n' => 0, 'correct' => 0],
+        ];
+    }
+    if (($taskRow['final_decision_correct'] ?? null) === null) {
+        continue;
+    }
+    $analysisConditionAiBuckets[$condition][$aiCorrect]['n']++;
+    if ((int) $taskRow['final_decision_correct'] === 1) {
+        $analysisConditionAiBuckets[$condition][$aiCorrect]['correct']++;
+    }
+}
 
 $analysisTaskRowsByParticipant = [];
 foreach ($analysisCohortTaskRows as $taskRow) {
@@ -1695,6 +1749,64 @@ foreach ($analysisCohortParticipants as $row) {
     if ((int) ($row['low_quality_response'] ?? 0) === 1) {
         $lowQualityCount++;
     }
+}
+$shortFlagStatsByParticipant = [];
+foreach ($analysisCohortTaskRows as $taskRow) {
+    $participantId = (int) ($taskRow['participant_id'] ?? 0);
+    if ($participantId <= 0) {
+        continue;
+    }
+    if (!isset($shortFlagStatsByParticipant[$participantId])) {
+        $shortFlagStatsByParticipant[$participantId] = [
+            'tasks' => 0,
+            'short_flags' => 0,
+            'total_documents_opened' => 0,
+            'total_task_duration_seconds' => 0.0,
+        ];
+    }
+    $shortFlagStatsByParticipant[$participantId]['tasks']++;
+    if ((int) ($taskRow['short_time_flag'] ?? 0) === 1) {
+        $shortFlagStatsByParticipant[$participantId]['short_flags']++;
+    }
+    $shortFlagStatsByParticipant[$participantId]['total_documents_opened'] += max(0, (int) ($taskRow['number_documents_opened'] ?? 0));
+    $shortFlagStatsByParticipant[$participantId]['total_task_duration_seconds'] += max(0.0, (float) ($taskRow['duration_seconds'] ?? 0.0));
+}
+$lowQualityRows = [];
+foreach ($analysisCohortParticipants as $participantRow) {
+    if ((int) ($participantRow['low_quality_response'] ?? 0) !== 1) {
+        continue;
+    }
+    $participantId = (int) ($participantRow['participant_id'] ?? 0);
+    $seriousEffort = $participantRow['serious_effort'] !== null ? (int) $participantRow['serious_effort'] : null;
+    $taskStats = $shortFlagStatsByParticipant[$participantId] ?? [
+        'tasks' => 0,
+        'short_flags' => 0,
+        'total_documents_opened' => 0,
+        'total_task_duration_seconds' => 0.0,
+    ];
+    $hasLowEffort = $seriousEffort !== null && $seriousEffort <= 2;
+    $hasBothShortFlags = (int) $taskStats['tasks'] >= 2 && (int) $taskStats['short_flags'] >= 2;
+    $lowEffortFlag = ((int) $taskStats['total_documents_opened'] === 0 && (float) $taskStats['total_task_duration_seconds'] < 90.0) ? 1 : 0;
+    $reasons = [];
+    if ($hasLowEffort) {
+        $reasons[] = 'serious_effort <= 2';
+    }
+    if ($hasBothShortFlags) {
+        $reasons[] = 'short_time_flag = 1 on both tasks';
+    }
+    if (empty($reasons)) {
+        $reasons[] = 'Flagged by low-quality rule';
+    }
+    $lowQualityRows[] = [
+        'participant_id' => $participantId,
+        'participant_code' => (string) ($participantRow['participant_code'] ?? ''),
+        'condition_name' => (string) ($participantRow['condition_name'] ?? ''),
+        'serious_effort' => $seriousEffort,
+        'short_flags' => (int) $taskStats['short_flags'],
+        'tasks_count' => (int) $taskStats['tasks'],
+        'low_effort_flag' => $lowEffortFlag,
+        'reason' => implode(' + ', $reasons),
+    ];
 }
 $avgTaskDurationSeconds = 0.0;
 $avgTaskDurationCount = 0;
@@ -1925,8 +2037,29 @@ foreach ($analysisCohortTaskRows as $taskRow) {
     $inspectionRows[$condition]['relevant_time_count']++;
 }
 
-ksort($conditionResults);
-ksort($inspectionRows);
+$analysisConditionStats = sort_condition_keyed_array($analysisConditionStats);
+$analysisConditionAiBuckets = sort_condition_keyed_array($analysisConditionAiBuckets);
+$conditionResults = sort_condition_keyed_array($conditionResults);
+$inspectionRows = sort_condition_keyed_array($inspectionRows);
+$correctDistByCondition = sort_condition_keyed_array($correctDistByCondition);
+$relevantDistByCondition = sort_condition_keyed_array($relevantDistByCondition);
+$participantsPerCondition = sort_condition_keyed_array($participantsPerCondition);
+$completedByCondition = sort_condition_keyed_array($completedByCondition);
+
+$calibrationRows = array_values($calibrationRows);
+usort($calibrationRows, static function (array $a, array $b): int {
+    $conditionA = (string) ($a['condition_name'] ?? '');
+    $conditionB = (string) ($b['condition_name'] ?? '');
+    $weightCompare = condition_sort_weight($conditionA) <=> condition_sort_weight($conditionB);
+    if ($weightCompare !== 0) {
+        return $weightCompare;
+    }
+    $nameCompare = strcmp($conditionA, $conditionB);
+    if ($nameCompare !== 0) {
+        return $nameCompare;
+    }
+    return ((int) ($a['ai_correct'] ?? 0)) <=> ((int) ($b['ai_correct'] ?? 0));
+});
 
 if ($currentTab === 'data_for_analysis' && ((string) ($_GET['download'] ?? '0')) === '1') {
     $filename = 'data_for_analysis_' . date('Ymd_His') . '.csv';
@@ -2233,11 +2366,6 @@ require __DIR__ . '/../views/header.php';
                     <?php endforeach; ?>
                 </div>
             </article>
-            <article class="bg-white shadow rounded-xl p-6 min-h-36">
-                <p class="text-sm font-medium text-slate-500">Low-quality responses</p>
-                <p class="text-3xl font-bold text-slate-800 mt-2"><?= e((string) $lowQualityCount) ?></p>
-                <p class="text-xs text-slate-500 mt-2">serious_effort &le; 2 or short_time_flag = 1 on both tasks.</p>
-            </article>
         </section>
 
         <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -2489,6 +2617,7 @@ require __DIR__ . '/../views/header.php';
 
         <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
             <h2 class="text-lg font-semibold text-slate-800 mb-4">Condition × AI Correctness</h2>
+            <p class="text-xs text-slate-500 mb-3">Calculated from fully completed participants only; percentages use coded final decisions.</p>
             <table class="min-w-full text-sm">
                 <thead>
                     <tr class="border-b border-slate-200 text-slate-600">
@@ -2521,6 +2650,45 @@ require __DIR__ . '/../views/header.php';
                     <?php endforeach; ?>
                 </tbody>
             </table>
+        </section>
+
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4">Low-quality responses</h2>
+            <p class="text-xs text-slate-500 mb-3">Flagged when serious_effort &le; 2 or short_time_flag = 1 on both tasks. Showing <?= e((string) $lowQualityCount) ?> participants.</p>
+            <?php if (empty($lowQualityRows)): ?>
+                <p class="text-sm text-slate-600">No low-quality responses found in the analysis cohort.</p>
+            <?php else: ?>
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-200 text-slate-600">
+                            <th class="text-right py-2 pr-3">participant_id</th>
+                            <th class="text-left py-2 pr-3">participant_code</th>
+                            <th class="text-left py-2 pr-3">condition_name</th>
+                            <th class="text-right py-2 px-2">serious_effort</th>
+                            <th class="text-right py-2 px-2">short_time_flags</th>
+                            <th class="text-right py-2 px-2">low_effort_flag</th>
+                            <th class="text-left py-2 pl-2">reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($lowQualityRows as $row): ?>
+                            <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                <td class="py-2 pr-3 text-right">
+                                    <a href="/dashboard/?tab=participant&participant_id=<?= e((string) $row['participant_id']) ?><?= e($includeTestParticipants ? '&include_test=1' : '') ?>" class="accent-text hover:underline font-medium">
+                                        <?= e((string) $row['participant_id']) ?>
+                                    </a>
+                                </td>
+                                <td class="py-2 pr-3"><?= e((string) $row['participant_code']) ?></td>
+                                <td class="py-2 pr-3"><?= e((string) $row['condition_name']) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['serious_effort'] === null ? '' : e((string) $row['serious_effort']) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) $row['short_flags']) ?>/<?= e((string) $row['tasks_count']) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) $row['low_effort_flag']) ?></td>
+                                <td class="py-2 pl-2"><?= e((string) $row['reason']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         </section>
 
     <?php elseif ($currentTab === 'condition_results'): ?>
