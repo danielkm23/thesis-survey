@@ -911,9 +911,21 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
             $manualResponseCorrectness = isset($taskRow['manual_response_correctness']) && $taskRow['manual_response_correctness'] !== null
                 ? (int) $taskRow['manual_response_correctness']
                 : null;
+            if ($manualResponseCorrectness === null) {
+                $manualFromReflection = extract_reflection_value((string) ($taskRow['active_reflection'] ?? ''), 'manual_response_correctness');
+                $manualResponseCorrectness = $manualFromReflection !== null && $manualFromReflection !== ''
+                    ? (int) $manualFromReflection
+                    : null;
+            }
             $responseCorrectness = isset($taskRow['response_correctness']) && $taskRow['response_correctness'] !== null
                 ? (int) $taskRow['response_correctness']
                 : null;
+            if ($responseCorrectness === null) {
+                $responseFromReflection = extract_reflection_value((string) ($taskRow['active_reflection'] ?? ''), 'response_correctness');
+                $responseCorrectness = $responseFromReflection !== null && $responseFromReflection !== ''
+                    ? (int) $responseFromReflection
+                    : null;
+            }
             $finalDecisionCorrect = $manualResponseCorrectness ?? $responseCorrectness;
             if ($finalDecisionCorrect === null) {
                 $isCorrectDecision = ($aiCorrect === 1 && $relianceChoice !== 'did_not_use')
@@ -1034,6 +1046,7 @@ $taskRowsStmt = $pdo->query(
         tr.reliance_choice,
         ' . $responseCorrectnessSelect . ',
         ' . $manualResponseCorrectnessSelect . ',
+        tr.active_reflection,
         tr.confidence
      FROM task_responses tr
      JOIN participants p ON p.id = tr.participant_id'
@@ -1093,9 +1106,21 @@ foreach ($taskRows as $row) {
     $manualResponseCorrectness = isset($row['manual_response_correctness']) && $row['manual_response_correctness'] !== null
         ? (int) $row['manual_response_correctness']
         : null;
+    if ($manualResponseCorrectness === null) {
+        $manualFromReflection = extract_reflection_value((string) ($row['active_reflection'] ?? ''), 'manual_response_correctness');
+        $manualResponseCorrectness = $manualFromReflection !== null && $manualFromReflection !== ''
+            ? (int) $manualFromReflection
+            : null;
+    }
     $responseCorrectness = isset($row['response_correctness']) && $row['response_correctness'] !== null
         ? (int) $row['response_correctness']
         : null;
+    if ($responseCorrectness === null) {
+        $responseFromReflection = extract_reflection_value((string) ($row['active_reflection'] ?? ''), 'response_correctness');
+        $responseCorrectness = $responseFromReflection !== null && $responseFromReflection !== ''
+            ? (int) $responseFromReflection
+            : null;
+    }
     $finalDecisionCorrect = $manualResponseCorrectness ?? $responseCorrectness;
     if ($finalDecisionCorrect === null) {
         // Fallback proxy for older rows that do not yet have coding.
