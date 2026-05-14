@@ -1735,10 +1735,16 @@ foreach ($analysisCohortParticipants as $participantRow) {
             'correct_pct_sum' => 0.0,
             'correct_pct_count' => 0,
             'two_of_two' => 0,
+            'task_1_correct_sum' => 0.0,
+            'task_1_correct_count' => 0,
+            'task_2_correct_sum' => 0.0,
+            'task_2_correct_count' => 0,
             'relevant_rate_sum' => 0.0,
             'relevant_rate_count' => 0,
             'avg_docs_opened_sum' => 0.0,
             'avg_docs_opened_count' => 0,
+            'avg_total_doc_time_sum' => 0.0,
+            'avg_total_doc_time_count' => 0,
             'avg_relevant_doc_time_sum' => 0.0,
             'avg_relevant_doc_time_count' => 0,
             'avg_confidence_sum' => 0.0,
@@ -1774,6 +1780,10 @@ foreach ($analysisCohortParticipants as $participantRow) {
         $conditionResults[$condition]['avg_docs_opened_sum'] += (float) $participantRow['avg_docs_opened'];
         $conditionResults[$condition]['avg_docs_opened_count']++;
     }
+    if ($participantRow['avg_total_doc_time_sec'] !== null) {
+        $conditionResults[$condition]['avg_total_doc_time_sum'] += (float) $participantRow['avg_total_doc_time_sec'];
+        $conditionResults[$condition]['avg_total_doc_time_count']++;
+    }
     if ($participantRow['avg_relevant_doc_time_sec'] !== null) {
         $conditionResults[$condition]['avg_relevant_doc_time_sum'] += (float) $participantRow['avg_relevant_doc_time_sec'];
         $conditionResults[$condition]['avg_relevant_doc_time_count']++;
@@ -1788,6 +1798,40 @@ foreach ($analysisCohortParticipants as $participantRow) {
 
 foreach ($analysisCohortTaskRows as $taskRow) {
     $condition = (string) ($taskRow['condition_name'] ?? 'unknown');
+    if (!isset($conditionResults[$condition])) {
+        $conditionResults[$condition] = [
+            'n_completed' => 0,
+            'correct_count_sum' => 0.0,
+            'correct_pct_sum' => 0.0,
+            'correct_pct_count' => 0,
+            'two_of_two' => 0,
+            'task_1_correct_sum' => 0.0,
+            'task_1_correct_count' => 0,
+            'task_2_correct_sum' => 0.0,
+            'task_2_correct_count' => 0,
+            'relevant_rate_sum' => 0.0,
+            'relevant_rate_count' => 0,
+            'avg_docs_opened_sum' => 0.0,
+            'avg_docs_opened_count' => 0,
+            'avg_total_doc_time_sum' => 0.0,
+            'avg_total_doc_time_count' => 0,
+            'avg_relevant_doc_time_sum' => 0.0,
+            'avg_relevant_doc_time_count' => 0,
+            'avg_confidence_sum' => 0.0,
+            'avg_confidence_count' => 0,
+        ];
+    }
+    $taskNumber = (int) ($taskRow['task_number'] ?? 0);
+    if (($taskRow['final_decision_correct'] ?? null) !== null) {
+        $finalDecisionCorrect = (float) $taskRow['final_decision_correct'];
+        if ($taskNumber === 1) {
+            $conditionResults[$condition]['task_1_correct_sum'] += $finalDecisionCorrect;
+            $conditionResults[$condition]['task_1_correct_count']++;
+        } elseif ($taskNumber === 2) {
+            $conditionResults[$condition]['task_2_correct_sum'] += $finalDecisionCorrect;
+            $conditionResults[$condition]['task_2_correct_count']++;
+        }
+    }
     $aiCorrect = (int) ($taskRow['ai_correct'] ?? 0);
     $calibrationKey = $condition . '|' . $aiCorrect;
     if (!isset($calibrationRows[$calibrationKey])) {
@@ -2362,6 +2406,7 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-right py-2 px-2">Full surveys (N)</th>
                         <th class="text-right py-2 px-2">Avg correct (%)</th>
                         <th class="text-right py-2 px-2">Avg docs opened</th>
+                        <th class="text-right py-2 px-2">Avg total doc time (s)</th>
                         <th class="text-right py-2 px-2">Avg confidence</th>
                         <th class="text-right py-2 pl-2">Relevant doc open rate (%)</th>
                     </tr>
@@ -2376,6 +2421,9 @@ require __DIR__ . '/../views/header.php';
                         $avgDocsOpened = ($stats['avg_docs_opened_count'] ?? 0) > 0
                             ? ($stats['avg_docs_opened_sum'] / $stats['avg_docs_opened_count'])
                             : 0.0;
+                        $avgTotalDocTime = ($stats['avg_total_doc_time_count'] ?? 0) > 0
+                            ? ($stats['avg_total_doc_time_sum'] / $stats['avg_total_doc_time_count'])
+                            : 0.0;
                         $avgConfidence = ($stats['avg_confidence_count'] ?? 0) > 0
                             ? ($stats['avg_confidence_sum'] / $stats['avg_confidence_count'])
                             : 0.0;
@@ -2388,6 +2436,7 @@ require __DIR__ . '/../views/header.php';
                             <td class="py-2 px-2 text-right text-slate-700"><?= e((string) $fullSurveys) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgCorrectPct, 1)) ?>%</td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgDocsOpened, 2)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgTotalDocTime, 1)) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgConfidence, 2)) ?></td>
                             <td class="py-2 pl-2 text-right text-slate-700"><?= e(number_format($relevantRatePct, 1)) ?>%</td>
                         </tr>
@@ -2448,6 +2497,7 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-right py-2 px-2">% with 2/2 correct</th>
                         <th class="text-right py-2 px-2">relevant_doc_open_rate</th>
                         <th class="text-right py-2 px-2">avg_docs_opened</th>
+                        <th class="text-right py-2 px-2">avg_total_doc_time_sec</th>
                         <th class="text-right py-2 px-2">avg_relevant_doc_time_sec</th>
                         <th class="text-right py-2 pl-2">avg_confidence</th>
                     </tr>
@@ -2461,6 +2511,7 @@ require __DIR__ . '/../views/header.php';
                         $twoOfTwoPct = $n > 0 ? ((float) $stats['two_of_two'] / $n) * 100.0 : 0.0;
                         $relevantRatePct = $stats['relevant_rate_count'] > 0 ? (($stats['relevant_rate_sum'] / $stats['relevant_rate_count']) * 100.0) : 0.0;
                         $avgDocs = $stats['avg_docs_opened_count'] > 0 ? ($stats['avg_docs_opened_sum'] / $stats['avg_docs_opened_count']) : 0.0;
+                        $avgTotalTime = $stats['avg_total_doc_time_count'] > 0 ? ($stats['avg_total_doc_time_sum'] / $stats['avg_total_doc_time_count']) : 0.0;
                         $avgRelevantTime = $stats['avg_relevant_doc_time_count'] > 0 ? ($stats['avg_relevant_doc_time_sum'] / $stats['avg_relevant_doc_time_count']) : 0.0;
                         $avgConf = $stats['avg_confidence_count'] > 0 ? ($stats['avg_confidence_sum'] / $stats['avg_confidence_count']) : 0.0;
                         ?>
@@ -2472,8 +2523,39 @@ require __DIR__ . '/../views/header.php';
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($twoOfTwoPct, 1)) ?>%</td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($relevantRatePct, 1)) ?>%</td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgDocs, 2)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgTotalTime, 2)) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgRelevantTime, 2)) ?></td>
                             <td class="py-2 pl-2 text-right text-slate-700"><?= e(number_format($avgConf, 2)) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </section>
+        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">Task-level correctness by condition</h3>
+            <p class="text-xs text-slate-500 mb-3">Percent correct is calculated separately for Task 1 and Task 2 within each condition (analysis cohort only).</p>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 text-slate-600">
+                        <th class="text-left py-2 pr-3">condition_name</th>
+                        <th class="text-right py-2 px-2">% task 1 correct</th>
+                        <th class="text-right py-2 pl-2">% task 2 correct</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($conditionResults as $condition => $stats): ?>
+                        <?php
+                        $task1CorrectPct = ($stats['task_1_correct_count'] ?? 0) > 0
+                            ? (($stats['task_1_correct_sum'] / $stats['task_1_correct_count']) * 100.0)
+                            : 0.0;
+                        $task2CorrectPct = ($stats['task_2_correct_count'] ?? 0) > 0
+                            ? (($stats['task_2_correct_sum'] / $stats['task_2_correct_count']) * 100.0)
+                            : 0.0;
+                        ?>
+                        <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                            <td class="py-2 pr-3 font-medium text-slate-800"><?= e((string) $condition) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($task1CorrectPct, 1)) ?>%</td>
+                            <td class="py-2 pl-2 text-right text-slate-700"><?= e(number_format($task2CorrectPct, 1)) ?>%</td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

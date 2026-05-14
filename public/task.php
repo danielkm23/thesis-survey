@@ -882,11 +882,27 @@ require __DIR__ . '/../views/header.php';
                     }, 700);
                 }
 
-                function postDocumentEvent(payload) {
+                function postDocumentEvent(payload, preferBeacon) {
+                    var jsonPayload = JSON.stringify(payload);
+                    var shouldUseBeacon = preferBeacon === true
+                        && typeof navigator !== 'undefined'
+                        && typeof navigator.sendBeacon === 'function';
+
+                    if (shouldUseBeacon) {
+                        try {
+                            var beaconBody = new Blob([jsonPayload], { type: 'application/json' });
+                            navigator.sendBeacon('log_event.php', beaconBody);
+                            return;
+                        } catch (error) {
+                            // Fall through to fetch if beacon fails.
+                        }
+                    }
+
                     fetch('log_event.php', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                        body: jsonPayload,
+                        keepalive: preferBeacon === true
                     }).catch(function () {
                         // Keep task flow uninterrupted if event logging fails.
                     });
@@ -1009,10 +1025,7 @@ require __DIR__ . '/../views/header.php';
                     overlay.setAttribute('aria-hidden', 'false');
                 }
 
-                function closeModal() {
-                    if (!overlay) {
-                        return;
-                    }
+                function closeModal(preferBeacon) {
                     if (activeDocumentKey !== null) {
                         var startedAt = openStartTimesByDocument[activeDocumentKey] || Date.now();
                         var viewMs = Math.max(0, Date.now() - startedAt);
@@ -1026,11 +1039,14 @@ require __DIR__ . '/../views/header.php';
                             event_order: activeOpenOrder,
                             display_order: activeDisplayOrder,
                             is_relevant: activeDocumentRelevant
-                        });
+                        }, preferBeacon === true);
                         activeDocumentKey = null;
                         activeDocumentRelevant = false;
                         activeOpenOrder = null;
                         activeDisplayOrder = null;
+                    }
+                    if (!overlay) {
+                        return;
                     }
                     overlay.classList.add('hidden');
                     overlay.setAttribute('aria-hidden', 'true');
@@ -1054,6 +1070,14 @@ require __DIR__ . '/../views/header.php';
                         }
                     });
                 }
+
+                // Flush active document timing before navigation/lifecycle exits.
+                window.addEventListener('pagehide', function () {
+                    closeModal(true);
+                });
+                window.addEventListener('beforeunload', function () {
+                    closeModal(true);
+                });
 
                 if (!form) {
                     return;
@@ -1212,6 +1236,8 @@ require __DIR__ . '/../views/header.php';
                         }
                         return;
                     }
+
+                    closeModal(true);
 
                     try {
                         localStorage.removeItem(autosaveKey);

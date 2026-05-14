@@ -17,7 +17,7 @@ define('DB_NAME', env_or_default('DB_NAME', 'thesis_survey'));
 define('DB_USER', env_or_default('DB_USER', 'root'));
 define('DB_PASS', env_or_default('DB_PASS', 'root1234'));
 
-// Test-mode controls (disabled by default for production safety).
-define('TEST_MODE_ENABLED', env_or_default('TEST_MODE_ENABLED', '0') === '1');
+// Test-mode controls (enabled by default; can be disabled with TEST_MODE_ENABLED=0).
+define('TEST_MODE_ENABLED', env_or_default('TEST_MODE_ENABLED', '1') === '1');
 define('TEST_MODE_KEY', env_or_default('TEST_MODE_KEY', 'TEST-MODE'));
 define('TEST_PARTICIPANT_PREFIX', env_or_default('TEST_PARTICIPANT_PREFIX', 'TEST-'));
