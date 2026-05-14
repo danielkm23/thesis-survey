@@ -603,6 +603,7 @@ require __DIR__ . '/../views/header.php';
                     <aside class="md:col-span-1 md:sticky md:top-5 self-start">
                         <section class="task-card">
                             <h2 class="task-card-title task-card-title-sentence">Available company documents</h2>
+                            <p class="text-sm text-slate-600 mb-2">You may open these documents to check the relevant policy details before choosing your response.</p>
                             <div class="space-y-1.5">
                                 <?php foreach ($documentsInDisplayOrder as $document): ?>
                                     <button
@@ -616,7 +617,10 @@ require __DIR__ . '/../views/header.php';
                                         class="doc-button-card w-full text-left flex items-start gap-1.5 md:gap-2"
                                     >
                                         <span aria-hidden="true">📄</span>
-                                        <span class="text-slate-700"><?= e($document['display_order'] . '. ' . $document['title']) ?></span>
+                                        <span class="flex items-center justify-between gap-2 w-full">
+                                            <span class="text-slate-700"><?= e($document['display_order'] . '. ' . $document['title']) ?></span>
+                                            <span class="text-xs text-slate-500">view</span>
+                                        </span>
                                     </button>
                                 <?php endforeach; ?>
                             </div>
@@ -671,6 +675,7 @@ require __DIR__ . '/../views/header.php';
 
                         <section class="task-card md:hidden">
                             <h2 class="task-card-title task-card-title-sentence">Available company documents</h2>
+                            <p class="text-sm text-slate-600 mb-2">You may open these documents to check the relevant policy details before choosing your response.</p>
                             <div class="space-y-1.5">
                                 <?php foreach ($documentsInDisplayOrder as $document): ?>
                                     <button
@@ -684,7 +689,10 @@ require __DIR__ . '/../views/header.php';
                                         class="doc-button-card w-full text-left flex items-start gap-1.5 md:gap-2"
                                     >
                                         <span aria-hidden="true">📄</span>
-                                        <span class="text-slate-700"><?= e($document['display_order'] . '. ' . $document['title']) ?></span>
+                                        <span class="flex items-center justify-between gap-2 w-full">
+                                            <span class="text-slate-700"><?= e($document['display_order'] . '. ' . $document['title']) ?></span>
+                                            <span class="text-xs text-slate-500">view</span>
+                                        </span>
                                     </button>
                                 <?php endforeach; ?>
                             </div>
@@ -771,6 +779,7 @@ require __DIR__ . '/../views/header.php';
                     <aside class="hidden md:block md:col-span-1 md:sticky md:top-5 self-start">
                         <section class="task-card">
                             <h2 class="task-card-title task-card-title-sentence">Available company documents</h2>
+                            <p class="text-sm text-slate-600 mb-2">You may open these documents to check the relevant policy details before choosing your response.</p>
                             <div class="space-y-1.5">
                                 <?php foreach ($documentsInDisplayOrder as $document): ?>
                                     <button
@@ -784,7 +793,10 @@ require __DIR__ . '/../views/header.php';
                                         class="doc-button-card w-full text-left flex items-start gap-1.5 md:gap-2"
                                     >
                                         <span aria-hidden="true">📄</span>
-                                        <span class="text-slate-700"><?= e($document['display_order'] . '. ' . $document['title']) ?></span>
+                                        <span class="flex items-center justify-between gap-2 w-full">
+                                            <span class="text-slate-700"><?= e($document['display_order'] . '. ' . $document['title']) ?></span>
+                                            <span class="text-xs text-slate-500">view</span>
+                                        </span>
                                     </button>
                                 <?php endforeach; ?>
                             </div>

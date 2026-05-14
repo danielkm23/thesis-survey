@@ -31,7 +31,7 @@ require __DIR__ . '/../views/header.php';
         </ol>
 
         <p class="text-slate-700 mb-4">
-            You will then choose the response you would send to the colleague, indicate how confident you are in your choice, and briefly explain your reasoning.
+            You will then choose the response you would send to the colleague. Company documents are available during each task and may be used to check the information before deciding. You will also indicate how confident you are in your decision.
         </p>
 
         <p class="text-slate-700 mb-4">Please answer as you would in a realistic workplace situation.</p>
