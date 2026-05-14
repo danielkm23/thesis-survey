@@ -250,10 +250,10 @@ function analysis_task_level(PDO $pdo): array
     $durationSecondsSql = $hasDurationSeconds ? 'tr.duration_seconds' : 'NULL';
     $shortTimeFlagSql = $hasShortTimeFlag ? 'tr.short_time_flag' : '0';
     $relevantOpenFromEventsSql = $hasIsRelevantInEvents
-        ? 'MAX(CASE WHEN de.event_type = "open" AND de.is_relevant = 1 THEN 1 ELSE 0 END)'
+        ? 'MAX(CASE WHEN de.event_type = \'open\' AND de.is_relevant = 1 THEN 1 ELSE 0 END)'
         : 'NULL';
     $relevantViewMsFromEventsSql = $hasIsRelevantInEvents
-        ? 'COALESCE(SUM(CASE WHEN de.event_type = "close" AND de.is_relevant = 1 THEN COALESCE(de.view_ms, 0) ELSE 0 END), 0)'
+        ? 'COALESCE(SUM(CASE WHEN de.event_type = \'close\' AND de.is_relevant = 1 THEN COALESCE(de.view_ms, 0) ELSE 0 END), 0)'
         : 'NULL';
 
     $sql = 'SELECT
@@ -290,8 +290,8 @@ function analysis_task_level(PDO $pdo): array
         SELECT
             de.participant_id,
             de.task_number,
-            COUNT(DISTINCT CASE WHEN de.event_type = "open" THEN de.document_key END) AS number_documents_opened_from_events,
-            COALESCE(SUM(CASE WHEN de.event_type = "close" THEN COALESCE(de.view_ms, 0) ELSE 0 END), 0) AS total_document_view_time_ms_from_events,
+            COUNT(DISTINCT CASE WHEN de.event_type = \'open\' THEN de.document_key END) AS number_documents_opened_from_events,
+            COALESCE(SUM(CASE WHEN de.event_type = \'close\' THEN COALESCE(de.view_ms, 0) ELSE 0 END), 0) AS total_document_view_time_ms_from_events,
             ' . $relevantOpenFromEventsSql . ' AS relevant_document_opened_from_events,
             ' . $relevantViewMsFromEventsSql . ' AS relevant_document_view_time_ms_from_events
         FROM document_events de
