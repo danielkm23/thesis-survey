@@ -4,6 +4,10 @@ RewriteEngine On
 RewriteRule ^dashboard$ dashboard/index.php [L]
 RewriteRule ^dashboard/$ dashboard/index.php [L]
 
+# Ensure both /test and /test/ resolve reliably (including POST submissions).
+RewriteRule ^test$ test/index.php [L]
+RewriteRule ^test/$ test/index.php [L]
+
 # Allow extensionless routes like /dashboard -> /dashboard.php
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
