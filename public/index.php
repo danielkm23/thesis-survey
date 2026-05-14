@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pdo = db();
     $startMode = (string) ($_POST['start_mode'] ?? 'live');
     $isTestSession = $startMode === 'test';
-    $conditionName = choose_random_condition();
+    $conditionName = choose_balanced_condition($pdo, true);
     if ($isTestSession) {
         if (!$showTestEntry) {
             http_response_code(403);

@@ -2214,69 +2214,77 @@ require __DIR__ . '/../views/header.php';
             </div>
         </section>
 
-        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+        <?php
+        $overviewParticipantRows = $analysisCohortParticipants;
+        $overviewTaskRows = $analysisCohortTaskRows;
+        ?>
+        <section class="bg-white shadow rounded-xl p-6 mb-6">
             <h2 class="text-lg font-semibold text-slate-800 mb-4">Participant-Level Analysis View</h2>
-            <p class="text-xs text-slate-500 mb-3">Showing <?= e((string) count($analysisParticipantRows)) ?> participant rows.</p>
-            <?php if (empty($analysisParticipantRows)): ?>
-                <p class="text-sm text-slate-600">No participant-level analysis rows found.</p>
+            <p class="text-xs text-slate-500 mb-3">Shows one row per fully completed participant (2 finished tasks + completed survey). Currently showing <?= e((string) count($overviewParticipantRows)) ?> rows.</p>
+            <?php if (empty($overviewParticipantRows)): ?>
+                <p class="text-sm text-slate-600">No fully completed participant rows found.</p>
             <?php else: ?>
-                <?php $participantAnalysisColumns = array_keys($analysisParticipantRows[0]); ?>
-                <table class="min-w-full text-sm">
-                    <thead>
-                        <tr class="border-b border-slate-200 text-slate-600">
-                            <?php foreach ($participantAnalysisColumns as $column): ?>
-                                <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap"><?= e((string) $column) ?></th>
-                            <?php endforeach; ?>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($analysisParticipantRows as $row): ?>
-                            <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                <?php $participantAnalysisColumns = array_keys($overviewParticipantRows[0]); ?>
+                <div class="h-96 overflow-auto rounded-lg border border-slate-200">
+                    <table class="min-w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-slate-200 text-slate-600">
                                 <?php foreach ($participantAnalysisColumns as $column): ?>
-                                    <?php $rawValue = $row[$column] ?? null; ?>
-                                    <td class="py-2 pr-3 text-slate-700 align-top whitespace-nowrap"><?= e($rawValue === null ? '' : (string) $rawValue) ?></td>
+                                    <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap"><?= e((string) $column) ?></th>
                                 <?php endforeach; ?>
                             </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($overviewParticipantRows as $row): ?>
+                                <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                    <?php foreach ($participantAnalysisColumns as $column): ?>
+                                        <?php $rawValue = $row[$column] ?? null; ?>
+                                        <td class="py-2 pr-3 text-slate-700 align-top whitespace-nowrap"><?= e($rawValue === null ? '' : (string) $rawValue) ?></td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
             <?php endif; ?>
         </section>
 
-        <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
+        <section class="bg-white shadow rounded-xl p-6 mb-6">
             <h2 class="text-lg font-semibold text-slate-800 mb-4">Task-Level Analysis View</h2>
-            <p class="text-xs text-slate-500 mb-3">Showing <?= e((string) count($analysisTaskLevelRows)) ?> task rows.</p>
-            <?php if (empty($analysisTaskLevelRows)): ?>
-                <p class="text-sm text-slate-600">No task-level analysis rows found.</p>
+            <p class="text-xs text-slate-500 mb-3">Shows one row per task from fully completed participants only. Currently showing <?= e((string) count($overviewTaskRows)) ?> rows.</p>
+            <?php if (empty($overviewTaskRows)): ?>
+                <p class="text-sm text-slate-600">No fully completed task rows found.</p>
             <?php else: ?>
                 <?php
                 $taskAnalysisColumns = array_values(array_filter(
-                    array_keys($analysisTaskLevelRows[0]),
+                    array_keys($overviewTaskRows[0]),
                     static fn (string $column): bool => $column !== 'active_reflection'
                 ));
                 ?>
-                <table class="min-w-full text-sm">
-                    <thead>
-                        <tr class="border-b border-slate-200 text-slate-600">
-                            <?php foreach ($taskAnalysisColumns as $column): ?>
-                                <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap"><?= e((string) $column) ?></th>
-                            <?php endforeach; ?>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($analysisTaskLevelRows as $row): ?>
-                            <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                <div class="h-96 overflow-auto rounded-lg border border-slate-200">
+                    <table class="min-w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-slate-200 text-slate-600">
                                 <?php foreach ($taskAnalysisColumns as $column): ?>
-                                    <?php
-                                    $rawValue = $row[$column] ?? null;
-                                    $displayValue = $rawValue === null ? '' : (string) $rawValue;
-                                    ?>
-                                    <td class="py-2 pr-3 text-slate-700 align-top whitespace-nowrap"><?= e($displayValue) ?></td>
+                                    <th class="sticky top-0 z-10 bg-white text-left py-2 pr-3 font-semibold whitespace-nowrap"><?= e((string) $column) ?></th>
                                 <?php endforeach; ?>
                             </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($overviewTaskRows as $row): ?>
+                                <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                    <?php foreach ($taskAnalysisColumns as $column): ?>
+                                        <?php
+                                        $rawValue = $row[$column] ?? null;
+                                        $displayValue = $rawValue === null ? '' : (string) $rawValue;
+                                        ?>
+                                        <td class="py-2 pr-3 text-slate-700 align-top whitespace-nowrap"><?= e($displayValue) ?></td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
             <?php endif; ?>
         </section>
 

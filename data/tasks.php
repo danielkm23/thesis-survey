@@ -20,11 +20,11 @@ return [
             ],
             [
                 'key' => 'correct',
-                'text' => "This can proceed only if manager approval is obtained before the meeting is recorded.",
+                'text' => "The meeting can be recorded only after manager approval is obtained before the meeting.",
             ],
             [
                 'key' => 'too_strict',
-                'text' => "This cannot be recorded because client meetings may not be used for internal training.",
+                'text' => "The meeting cannot be recorded because client meetings may not be used for internal training.",
             ],
             [
                 'key' => 'other',
@@ -79,15 +79,15 @@ return [
         'response_options' => [
             [
                 'key' => 'ai_consistent_wrong',
-                'text' => "This can likely be reimbursed because it was a business trip and documentation was provided.",
+                'text' => "The claim can be reimbursed because it was a business trip and documentation was provided.",
             ],
             [
                 'key' => 'correct',
-                'text' => "This cannot be approved automatically, but a manager may review it as an exception if the receipt and explanation are complete.",
+                'text' => "The claim cannot be approved automatically, but a manager may review it as an exception if the receipt and explanation are complete.",
             ],
             [
                 'key' => 'too_strict',
-                'text' => "This cannot be reimbursed because prior approval was not obtained.",
+                'text' => "The claim cannot be reimbursed because prior approval was not obtained.",
             ],
             [
                 'key' => 'other',
