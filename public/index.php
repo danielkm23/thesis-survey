@@ -11,7 +11,8 @@ $requestPath = rtrim((string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_
 if ($requestPath === '') {
     $requestPath = '/';
 }
-$showTestEntry = TEST_MODE_ENABLED && $requestPath === '/test';
+$isTestPath = preg_match('#(?:^|/)test$#', $requestPath) === 1;
+$showTestEntry = TEST_MODE_ENABLED && $isTestPath;
 
 if ($showTestEntry) {
     clear_participant_session_state();
