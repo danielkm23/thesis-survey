@@ -294,10 +294,10 @@ if ($needsDocumentSummaryFields) {
     if ($hasDocumentEventsIsRelevantColumn) {
         $summaryStmt = $pdo->prepare(
             'SELECT
-                COUNT(DISTINCT CASE WHEN event_type = "open" THEN document_key END) AS number_documents_opened,
-                COALESCE(SUM(CASE WHEN event_type = "close" THEN view_ms ELSE 0 END), 0) AS total_document_view_time_ms,
-                MAX(CASE WHEN event_type = "open" AND is_relevant = 1 THEN 1 ELSE 0 END) AS relevant_document_opened,
-                COALESCE(SUM(CASE WHEN event_type = "close" AND is_relevant = 1 THEN view_ms ELSE 0 END), 0) AS relevant_document_view_time_ms
+                COUNT(DISTINCT CASE WHEN event_type = \'open\' THEN document_key END) AS number_documents_opened,
+                COALESCE(SUM(CASE WHEN event_type = \'close\' THEN view_ms ELSE 0 END), 0) AS total_document_view_time_ms,
+                MAX(CASE WHEN event_type = \'open\' AND is_relevant = 1 THEN 1 ELSE 0 END) AS relevant_document_opened,
+                COALESCE(SUM(CASE WHEN event_type = \'close\' AND is_relevant = 1 THEN view_ms ELSE 0 END), 0) AS relevant_document_view_time_ms
              FROM document_events
              WHERE participant_id = :participant_id AND task_number = :task_number'
         );
