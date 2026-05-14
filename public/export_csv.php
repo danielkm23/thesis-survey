@@ -25,6 +25,7 @@ $allowedTables = [
 ];
 
 $table = (string) ($_GET['table'] ?? '');
+$includeTestParticipants = ((string) ($_GET['include_test'] ?? '0')) === '1';
 if (!in_array($table, $allowedTables, true)) {
     http_response_code(400);
     exit('Invalid table.');
@@ -33,9 +34,9 @@ if (!in_array($table, $allowedTables, true)) {
 $pdo = db();
 
 if ($table === 'analysis_task_level') {
-    $rows = analysis_task_level($pdo);
+    $rows = analysis_task_level($pdo, $includeTestParticipants);
 } elseif ($table === 'analysis_participant_summary') {
-    $rows = analysis_participant_summary($pdo);
+    $rows = analysis_participant_summary($pdo, $includeTestParticipants);
 } elseif ($table === 'task_responses') {
     $hasSelectedResponseOptionColumn = false;
     $hasCustomResponseTextColumn = false;

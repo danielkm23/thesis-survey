@@ -701,8 +701,9 @@ require __DIR__ . '/../views/header.php';
                         <section class="task-card">
                             <?php if ($isActiveCondition): ?>
                                 <div id="verification-intention-group" class="mb-3.5">
-                                    <label for="verification_intention" class="block text-base font-semibold text-slate-800 mb-2">Before choosing your response, briefly state what you would consider checking or changing in the AI-generated draft.</label>
+                                    <label for="verification_intention" class="block text-base font-semibold text-slate-800 mb-2">Before choosing your response, briefly state what you would check before using the AI-generated draft, such as facts, information, consistency, or wording.</label>
                                     <div class="space-y-1.5 text-slate-700">
+                                        <p class="text-xs text-slate-500">A few words are enough. You may write “nothing” if you would not change or check anything.</p>
                                         <input
                                             type="text"
                                             id="verification_intention"
@@ -713,7 +714,6 @@ require __DIR__ . '/../views/header.php';
                                             placeholder="I would consider..."
                                             value="<?= e($reviewVerificationValue) ?>"
                                         >
-                                        <p class="text-xs text-slate-500">A few words are enough. You may write “nothing” if you would not change or check anything.</p>
                                     </div>
                                     <p id="verification-intention-error" class="mt-2 text-sm text-red-600 hidden">Please briefly state what you would consider changing or checking.</p>
                                 </div>

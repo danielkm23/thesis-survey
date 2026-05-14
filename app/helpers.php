@@ -60,3 +60,31 @@ function has_valid_participant_session(): bool
         && session_get('participant_code') !== null
         && session_get('condition_name') !== null;
 }
+
+/**
+ * Clears participant/task session state while keeping unrelated session data.
+ */
+function clear_participant_session_state(): void
+{
+    $keysToClear = [
+        'participant_id',
+        'participant_code',
+        'condition_name',
+        'is_test_participant',
+        'postsurvey_answers',
+        'postsurvey_started_at',
+        'doc_order',
+        'response_option_order',
+        'raffle_entry_status',
+    ];
+
+    foreach ($keysToClear as $key) {
+        unset($_SESSION[$key]);
+    }
+
+    foreach (array_keys($_SESSION) as $key) {
+        if (str_starts_with((string) $key, 'task_')) {
+            unset($_SESSION[$key]);
+        }
+    }
+}

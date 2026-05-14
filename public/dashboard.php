@@ -397,6 +397,8 @@ $allowedDataTables = [
     'postsurvey_responses',
     'raffle_entries',
 ];
+$includeTestParticipants = ((string) ($_GET['include_test'] ?? '0')) === '1';
+$includeTestQuery = $includeTestParticipants ? '&include_test=1' : '';
 $selectedTable = (string) ($_GET['table'] ?? 'participants');
 if (!in_array($selectedTable, $allowedDataTables, true)) {
     $selectedTable = 'participants';
@@ -665,6 +667,7 @@ $participantSummaryStmt = $pdo->query(
         COUNT(*) AS total_respondents,
         SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed_respondents
      FROM participants'
+    . ($includeTestParticipants ? '' : ' WHERE participant_code NOT LIKE ' . $pdo->quote(TEST_PARTICIPANT_PREFIX . '%'))
 );
 $participantSummary = $participantSummaryStmt->fetch() ?: [
     'total_respondents' => 0,
@@ -689,7 +692,9 @@ $conditionCountsStmt = $pdo->query(
         condition_name,
         COUNT(*) AS respondents,
         SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed
-     FROM participants
+     FROM participants'
+    . ($includeTestParticipants ? '' : ' WHERE participant_code NOT LIKE ' . $pdo->quote(TEST_PARTICIPANT_PREFIX . '%'))
+    . '
      GROUP BY condition_name
      ORDER BY condition_name'
 );
@@ -728,6 +733,7 @@ try {
             GROUP BY participant_id
          ) AS doc_counts
            ON doc_counts.participant_id = p.id
+         ' . ($includeTestParticipants ? '' : 'WHERE p.participant_code NOT LIKE ' . $pdo->quote(TEST_PARTICIPANT_PREFIX . '%')) . '
          GROUP BY p.condition_name'
     );
     foreach ($avgDocsStmt->fetchAll() as $row) {
@@ -749,6 +755,7 @@ $avgInspectStmt = $pdo->query(
      JOIN document_events de ON de.participant_id = p.id
      WHERE de.event_type = \'close\'
        AND de.view_ms IS NOT NULL
+       ' . ($includeTestParticipants ? '' : 'AND p.participant_code NOT LIKE ' . $pdo->quote(TEST_PARTICIPANT_PREFIX . '%')) . '
      GROUP BY p.condition_name'
 );
 $avgInspectionSecondsByCondition = [];
@@ -1164,8 +1171,8 @@ if ($overallConfidenceCount > 0) {
     $overallAvgConfidence = array_sum($confidenceSums) / $overallConfidenceCount;
 }
 
-$analysisTaskLevelRows = analysis_task_level($pdo);
-$analysisParticipantRows = analysis_participant_summary($pdo);
+$analysisTaskLevelRows = analysis_task_level($pdo, $includeTestParticipants);
+$analysisParticipantRows = analysis_participant_summary($pdo, $includeTestParticipants);
 
 $analysisTotalRespondents = count($analysisParticipantRows);
 $analysisCompletedRespondents = 0;
@@ -1544,62 +1551,80 @@ require __DIR__ . '/../views/header.php';
     <section class="mb-6">
         <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1">
             <a
-                href="/dashboard/?tab=overview"
+                href="/dashboard/?tab=overview<?= e($includeTestQuery) ?>"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'overview' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Overview / Data Quality
             </a>
             <a
-                href="/dashboard/?tab=condition_results"
+                href="/dashboard/?tab=condition_results<?= e($includeTestQuery) ?>"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'condition_results' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Condition Results
             </a>
             <a
-                href="/dashboard/?tab=calibration"
+                href="/dashboard/?tab=calibration<?= e($includeTestQuery) ?>"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'calibration' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Calibration by Task
             </a>
             <a
-                href="/dashboard/?tab=inspection"
+                href="/dashboard/?tab=inspection<?= e($includeTestQuery) ?>"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'inspection' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Inspection Behavior
             </a>
             <a
-                href="/dashboard/?tab=participants_analysis"
+                href="/dashboard/?tab=participants_analysis<?= e($includeTestQuery) ?>"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'participants_analysis' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Participants
             </a>
             <a
-                href="/dashboard/?tab=task_level_analysis"
+                href="/dashboard/?tab=task_level_analysis<?= e($includeTestQuery) ?>"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'task_level_analysis' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Task-Level Data
             </a>
             <a
-                href="/dashboard/?tab=data"
+                href="/dashboard/?tab=data<?= e($includeTestQuery) ?>"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'data' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Raw Data
             </a>
             <a
-                href="/dashboard/?tab=trash"
+                href="/dashboard/?tab=trash<?= e($includeTestQuery) ?>"
                 class="px-3 py-1.5 text-sm rounded-md transition <?= $currentTab === 'trash' ? 'accent-bg text-white' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Trash
             </a>
             <?php if ($currentTab === 'participant' && $participantDetailId !== false && $participantDetailId !== null): ?>
                 <a
-                    href="/dashboard/?tab=participant&participant_id=<?= e((string) $participantDetailId) ?>"
+                    href="/dashboard/?tab=participant&participant_id=<?= e((string) $participantDetailId) ?><?= e($includeTestQuery) ?>"
                     class="px-3 py-1.5 text-sm rounded-md transition accent-bg text-white"
                 >
                     Participant <?= e((string) $participantDetailId) ?>
                 </a>
             <?php endif; ?>
         </div>
+    </section>
+    <section class="mb-4">
+        <form method="get" action="/dashboard/" class="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input type="hidden" name="tab" value="<?= e($currentTab) ?>">
+            <?php if ($currentTab === 'data'): ?>
+                <input type="hidden" name="table" value="<?= e($selectedTable) ?>">
+            <?php endif; ?>
+            <label class="inline-flex items-center gap-2">
+                <input
+                    type="checkbox"
+                    name="include_test"
+                    value="1"
+                    <?= $includeTestParticipants ? 'checked' : '' ?>
+                    onchange="this.form.submit()"
+                >
+                <span>Include test participants (<?= e(TEST_PARTICIPANT_PREFIX) ?>*)</span>
+            </label>
+        </form>
     </section>
 
     <?php if ($flashSuccess !== ''): ?>
@@ -1669,31 +1694,31 @@ require __DIR__ . '/../views/header.php';
             <h2 class="text-lg font-semibold text-slate-800 mb-4">Analysis Exports</h2>
             <div class="flex flex-wrap gap-3">
                 <a
-                    href="/export_csv.php?table=analysis_task_level"
+                    href="/export_csv.php?table=analysis_task_level<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download Task-Level Analysis CSV
                 </a>
                 <a
-                    href="/export_csv.php?table=analysis_participant_summary"
+                    href="/export_csv.php?table=analysis_participant_summary<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download Participant Summary CSV
                 </a>
                 <a
-                    href="/export_csv.php?table=document_events"
+                    href="/export_csv.php?table=document_events<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download Raw document_events CSV
                 </a>
                 <a
-                    href="/export_csv.php?table=task_responses"
+                    href="/export_csv.php?table=task_responses<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download Raw task_responses CSV
                 </a>
                 <a
-                    href="/export_csv.php?table=postsurvey_responses"
+                    href="/export_csv.php?table=postsurvey_responses<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download Raw postsurvey_responses CSV
@@ -2241,7 +2266,7 @@ require __DIR__ . '/../views/header.php';
                     Load Data
                 </button>
                 <a
-                    href="/export_csv.php?table=<?= e($selectedTable) ?>"
+                    href="/export_csv.php?table=<?= e($selectedTable) ?><?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download CSV

@@ -162,6 +162,25 @@ function analysis_postsurvey_metrics(?array $post): array
     ];
 }
 
+function analysis_test_participant_prefix(): string
+{
+    return defined('TEST_PARTICIPANT_PREFIX') ? (string) TEST_PARTICIPANT_PREFIX : 'TEST-';
+}
+
+function analysis_sql_quote(string $value): string
+{
+    return "'" . str_replace("'", "''", $value) . "'";
+}
+
+function analysis_participant_filter_clause(string $alias, bool $includeTestParticipants): string
+{
+    if ($includeTestParticipants) {
+        return '';
+    }
+    $prefix = analysis_test_participant_prefix();
+    return ' WHERE ' . $alias . '.participant_code NOT LIKE ' . analysis_sql_quote($prefix . '%');
+}
+
 function analysis_relevant_document_by_task(): array
 {
     $map = [];
@@ -193,7 +212,7 @@ function analysis_relevant_document_by_task(): array
     return $map;
 }
 
-function analysis_task_level(PDO $pdo): array
+function analysis_task_level(PDO $pdo, bool $includeTestParticipants = false): array
 {
     $hasManualResponseCorrectness = analysis_column_exists($pdo, 'task_responses', 'manual_response_correctness');
     $hasSelectedResponseOption = analysis_column_exists($pdo, 'task_responses', 'selected_response_option');
@@ -256,6 +275,7 @@ function analysis_task_level(PDO $pdo): array
         ? 'COALESCE(SUM(CASE WHEN de.event_type = \'close\' AND de.is_relevant = 1 THEN COALESCE(de.view_ms, 0) ELSE 0 END), 0)'
         : 'NULL';
 
+    $participantFilterClause = analysis_participant_filter_clause('p', $includeTestParticipants);
     $sql = 'SELECT
         p.id AS participant_id,
         p.participant_code,
@@ -299,6 +319,7 @@ function analysis_task_level(PDO $pdo): array
     ) AS deagg
         ON deagg.participant_id = tr.participant_id
         AND deagg.task_number = tr.task_number
+    ' . $participantFilterClause . '
     ORDER BY tr.participant_id ASC, tr.task_number ASC, tr.id ASC';
 
     $postSurveyByParticipant = [];
@@ -479,9 +500,9 @@ function analysis_task_level(PDO $pdo): array
     return $analysisRows;
 }
 
-function analysis_participant_summary(PDO $pdo): array
+function analysis_participant_summary(PDO $pdo, bool $includeTestParticipants = false): array
 {
-    $taskRows = analysis_task_level($pdo);
+    $taskRows = analysis_task_level($pdo, $includeTestParticipants);
     $tasksByParticipant = [];
     foreach ($taskRows as $taskRow) {
         $participantId = (int) $taskRow['participant_id'];
@@ -501,9 +522,11 @@ function analysis_participant_summary(PDO $pdo): array
         $postSurveyByParticipant[$participantId] = $postRow;
     }
 
+    $participantFilterClause = analysis_participant_filter_clause('p', $includeTestParticipants);
     $participantsStmt = $pdo->query(
         'SELECT id AS participant_id, participant_code, condition_name, started_at, completed_at
-         FROM participants
+         FROM participants p
+         ' . $participantFilterClause . '
          ORDER BY id ASC'
     );
     $participants = $participantsStmt->fetchAll(PDO::FETCH_ASSOC);
