@@ -58,6 +58,15 @@ SET @sql = IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- 3b) Ensure optional participant study code column exists.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'participants' AND COLUMN_NAME = 'study_participation_code') = 0,
+    'ALTER TABLE participants ADD COLUMN study_participation_code VARCHAR(100) NULL',
+    'SELECT ''study_participation_code already exists'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- 3) Drop deprecated task field if present.
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS

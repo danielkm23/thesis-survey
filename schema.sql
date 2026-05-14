@@ -3,7 +3,8 @@ CREATE TABLE participants (
     participant_code VARCHAR(50) NOT NULL UNIQUE,
     condition_name VARCHAR(50) NOT NULL,
     started_at DATETIME NOT NULL,
-    completed_at DATETIME NULL
+    completed_at DATETIME NULL,
+    study_participation_code VARCHAR(100) NULL
 );
 
 CREATE TABLE document_events (

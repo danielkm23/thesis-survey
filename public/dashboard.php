@@ -653,6 +653,12 @@ if ($currentTab === 'data') {
 }
 
 if ($currentTab === 'full_raw_data') {
+    $participantColumns = [];
+    $participantColumnsStmt = $pdo->query('SHOW COLUMNS FROM participants');
+    foreach ($participantColumnsStmt->fetchAll() as $columnRow) {
+        $participantColumns[(string) $columnRow['Field']] = true;
+    }
+
     $taskResponseColumns = [];
     $taskResponseColumnsStmt = $pdo->query('SHOW COLUMNS FROM task_responses');
     foreach ($taskResponseColumnsStmt->fetchAll() as $columnRow) {
@@ -725,6 +731,7 @@ if ($currentTab === 'full_raw_data') {
         'p.condition_name',
         'p.started_at',
         'p.completed_at',
+        (isset($participantColumns['study_participation_code']) ? 'p.study_participation_code' : 'NULL') . ' AS study_participation_code',
     ];
 
     foreach ($taskFields as $field) {
@@ -796,6 +803,7 @@ if ($currentTab === 'full_raw_data') {
             'condition_name',
             'started_at',
             'completed_at',
+            'study_participation_code',
             'task1_selected_option_key',
             'task2_selected_option_key',
             'postsurvey_ai_experience',
@@ -2195,6 +2203,31 @@ require __DIR__ . '/../views/header.php';
                             </div>
                             <div class="w-full h-3 bg-slate-100 rounded">
                                 <div class="h-3 accent-bg rounded" style="width: <?= e(number_format($barWidth, 2, '.', '')) ?>%"></div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </article>
+            <article class="bg-white shadow rounded-xl p-6 min-h-36">
+                <p class="text-sm font-medium text-slate-500">Abandoned per condition</p>
+                <?php
+                $abandonedByCondition = [];
+                foreach ($participantsPerCondition as $condition => $startedCount) {
+                    $completedCount = (int) ($completedByCondition[$condition] ?? 0);
+                    $abandonedByCondition[$condition] = max(0, (int) $startedCount - $completedCount);
+                }
+                $maxAbandonedPerCondition = max([1, ...array_values($abandonedByCondition)]);
+                ?>
+                <div class="mt-3 space-y-2.5">
+                    <?php foreach ($abandonedByCondition as $condition => $abandonedCount): ?>
+                        <?php $barWidth = ((float) $abandonedCount / (float) $maxAbandonedPerCondition) * 100.0; ?>
+                        <div>
+                            <div class="flex items-center justify-between text-sm mb-1">
+                                <span class="font-medium text-slate-700"><?= e((string) $condition) ?></span>
+                                <span class="text-slate-600 tabular-nums"><?= e((string) $abandonedCount) ?></span>
+                            </div>
+                            <div class="w-full h-3 bg-slate-100 rounded">
+                                <div class="h-3 bg-amber-500 rounded" style="width: <?= e(number_format($barWidth, 2, '.', '')) ?>%"></div>
                             </div>
                         </div>
                     <?php endforeach; ?>
