@@ -64,8 +64,29 @@ if (
     }
 
     if ($participantId > 0) {
-        $existingTaskStmt = db()->prepare(
-            'SELECT final_response, reliance_choice, confidence, verification_intention, active_reflection
+        $pdo = db();
+        $hasVerificationIntentionColumn = false;
+        $hasActiveReflectionColumn = false;
+        try {
+            $verificationIntentionCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'verification_intention'");
+            $hasVerificationIntentionColumn = $verificationIntentionCheck !== false && $verificationIntentionCheck->fetch() !== false;
+            $activeReflectionCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'active_reflection'");
+            $hasActiveReflectionColumn = $activeReflectionCheck !== false && $activeReflectionCheck->fetch() !== false;
+        } catch (Throwable $e) {
+            $hasVerificationIntentionColumn = false;
+            $hasActiveReflectionColumn = false;
+        }
+
+        $selectColumns = ['final_response', 'reliance_choice', 'confidence'];
+        if ($hasVerificationIntentionColumn) {
+            $selectColumns[] = 'verification_intention';
+        }
+        if ($hasActiveReflectionColumn) {
+            $selectColumns[] = 'active_reflection';
+        }
+
+        $existingTaskStmt = $pdo->prepare(
+            'SELECT ' . implode(', ', $selectColumns) . '
              FROM task_responses
              WHERE participant_id = :participant_id AND task_number = :task_number
              ORDER BY id DESC
