@@ -1743,6 +1743,7 @@ foreach ($analysisCohortParticipants as $participantRow) {
             'relevant_rate_count' => 0,
             'avg_docs_opened_sum' => 0.0,
             'avg_docs_opened_count' => 0,
+            'no_doc_open_count' => 0,
             'avg_total_doc_time_sum' => 0.0,
             'avg_total_doc_time_count' => 0,
             'avg_relevant_doc_time_sum' => 0.0,
@@ -1777,8 +1778,12 @@ foreach ($analysisCohortParticipants as $participantRow) {
         }
     }
     if ($participantRow['avg_docs_opened'] !== null) {
-        $conditionResults[$condition]['avg_docs_opened_sum'] += (float) $participantRow['avg_docs_opened'];
+        $avgDocsOpenedValue = (float) $participantRow['avg_docs_opened'];
+        $conditionResults[$condition]['avg_docs_opened_sum'] += $avgDocsOpenedValue;
         $conditionResults[$condition]['avg_docs_opened_count']++;
+        if ($avgDocsOpenedValue <= 0.0) {
+            $conditionResults[$condition]['no_doc_open_count']++;
+        }
     }
     if ($participantRow['avg_total_doc_time_sec'] !== null) {
         $conditionResults[$condition]['avg_total_doc_time_sum'] += (float) $participantRow['avg_total_doc_time_sec'];
@@ -1813,6 +1818,7 @@ foreach ($analysisCohortTaskRows as $taskRow) {
             'relevant_rate_count' => 0,
             'avg_docs_opened_sum' => 0.0,
             'avg_docs_opened_count' => 0,
+            'no_doc_open_count' => 0,
             'avg_total_doc_time_sum' => 0.0,
             'avg_total_doc_time_count' => 0,
             'avg_relevant_doc_time_sum' => 0.0,
@@ -2406,6 +2412,7 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-right py-2 px-2">Full surveys (N)</th>
                         <th class="text-right py-2 px-2">Avg correct (%)</th>
                         <th class="text-right py-2 px-2">Avg docs opened</th>
+                        <th class="text-right py-2 px-2">N no doc opened at all</th>
                         <th class="text-right py-2 px-2">Avg total doc time (s)</th>
                         <th class="text-right py-2 px-2">Avg confidence</th>
                         <th class="text-right py-2 pl-2">Relevant doc open rate (%)</th>
@@ -2421,6 +2428,7 @@ require __DIR__ . '/../views/header.php';
                         $avgDocsOpened = ($stats['avg_docs_opened_count'] ?? 0) > 0
                             ? ($stats['avg_docs_opened_sum'] / $stats['avg_docs_opened_count'])
                             : 0.0;
+                        $noDocOpenedCount = (int) ($stats['no_doc_open_count'] ?? 0);
                         $avgTotalDocTime = ($stats['avg_total_doc_time_count'] ?? 0) > 0
                             ? ($stats['avg_total_doc_time_sum'] / $stats['avg_total_doc_time_count'])
                             : 0.0;
@@ -2436,6 +2444,7 @@ require __DIR__ . '/../views/header.php';
                             <td class="py-2 px-2 text-right text-slate-700"><?= e((string) $fullSurveys) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgCorrectPct, 1)) ?>%</td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgDocsOpened, 2)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e((string) $noDocOpenedCount) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgTotalDocTime, 1)) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgConfidence, 2)) ?></td>
                             <td class="py-2 pl-2 text-right text-slate-700"><?= e(number_format($relevantRatePct, 1)) ?>%</td>
