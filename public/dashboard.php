@@ -1522,12 +1522,86 @@ $analysisRelevantOpenRatePct = $analysisRelevantOpenRateCount > 0
     ? ($analysisRelevantOpenRateSum / $analysisRelevantOpenRateCount) * 100.0
     : 0.0;
 
+$analysisTaskRowsByParticipant = [];
+foreach ($analysisTaskLevelRows as $taskRow) {
+    $participantId = (int) ($taskRow['participant_id'] ?? 0);
+    $taskNumber = (int) ($taskRow['task_number'] ?? 0);
+    if ($participantId > 0 && $taskNumber > 0) {
+        $analysisTaskRowsByParticipant[$participantId][$taskNumber] = $taskRow;
+    }
+}
+
 $analysisCohortParticipants = array_values(array_filter(
     $analysisParticipantRows,
     static fn (array $row): bool => (int) ($row['tasks_completed'] ?? 0) === 2
         && ($row['serious_effort'] ?? null) !== null
         && trim((string) ($row['completed_at'] ?? '')) !== ''
 ));
+$analysisNotFinishedRows = [];
+foreach ($analysisParticipantRows as $participantRow) {
+    $tasksCompleted = (int) ($participantRow['tasks_completed'] ?? 0);
+    $completedAt = trim((string) ($participantRow['completed_at'] ?? ''));
+    $seriousEffort = $participantRow['serious_effort'] ?? null;
+    if ($tasksCompleted === 2 && $completedAt !== '' && $seriousEffort !== null) {
+        continue;
+    }
+
+    $reasons = [];
+    if ($tasksCompleted < 2) {
+        $reasons[] = 'tasks_completed < 2';
+    }
+    if ($completedAt === '') {
+        $reasons[] = 'completed_at missing';
+    }
+    if ($seriousEffort === null) {
+        $reasons[] = 'post-survey missing';
+    }
+    if (empty($reasons)) {
+        $reasons[] = 'excluded from analysis cohort';
+    }
+
+    $participantId = (int) ($participantRow['participant_id'] ?? 0);
+    $task1 = $analysisTaskRowsByParticipant[$participantId][1] ?? null;
+    $task2 = $analysisTaskRowsByParticipant[$participantId][2] ?? null;
+
+    $analysisNotFinishedRows[] = [
+        'participant_id' => $participantId,
+        'participant_code' => (string) ($participantRow['participant_code'] ?? ''),
+        'condition_name' => (string) ($participantRow['condition_name'] ?? ''),
+        'task1_reliance_choice' => is_array($task1) ? (string) ($task1['reliance_choice'] ?? '') : '',
+        'task1_decision_correct' => is_array($task1) ? ($task1['final_decision_correct'] ?? null) : null,
+        'task1_confidence' => is_array($task1) ? ($task1['confidence'] ?? null) : null,
+        'task1_relevant_doc_opened' => is_array($task1) ? ($task1['relevant_document_opened'] ?? null) : null,
+        'task1_number_docs_opened' => is_array($task1) ? ($task1['number_documents_opened'] ?? null) : null,
+        'task1_docs_opened_any' => is_array($task1)
+            ? ((((int) ($task1['number_documents_opened'] ?? 0)) > 0) ? 1 : 0)
+            : null,
+        'task1_total_doc_view_time_sec' => is_array($task1)
+            ? (($task1['total_document_view_time_sec'] ?? null) !== null ? (float) $task1['total_document_view_time_sec'] : null)
+            : null,
+        'task2_reliance_choice' => is_array($task2) ? (string) ($task2['reliance_choice'] ?? '') : '',
+        'task2_decision_correct' => is_array($task2) ? ($task2['final_decision_correct'] ?? null) : null,
+        'task2_confidence' => is_array($task2) ? ($task2['confidence'] ?? null) : null,
+        'task2_relevant_doc_opened' => is_array($task2) ? ($task2['relevant_document_opened'] ?? null) : null,
+        'task2_number_docs_opened' => is_array($task2) ? ($task2['number_documents_opened'] ?? null) : null,
+        'task2_docs_opened_any' => is_array($task2)
+            ? ((((int) ($task2['number_documents_opened'] ?? 0)) > 0) ? 1 : 0)
+            : null,
+        'task2_total_doc_view_time_sec' => is_array($task2)
+            ? (($task2['total_document_view_time_sec'] ?? null) !== null ? (float) $task2['total_document_view_time_sec'] : null)
+            : null,
+        'task1_duration_seconds' => is_array($task1) && ($task1['duration_seconds'] ?? null) !== null
+            ? (float) $task1['duration_seconds']
+            : null,
+        'task2_duration_seconds' => is_array($task2) && ($task2['duration_seconds'] ?? null) !== null
+            ? (float) $task2['duration_seconds']
+            : null,
+        'tasks_completed' => $tasksCompleted,
+        'completed_at' => $completedAt,
+        'serious_effort' => $seriousEffort,
+        'reason' => implode(' + ', $reasons),
+    ];
+}
 $analysisCohortParticipantIds = array_flip(array_map(
     static fn (array $row): int => (int) $row['participant_id'],
     $analysisCohortParticipants
@@ -1553,15 +1627,6 @@ foreach ($analysisCohortTaskRows as $taskRow) {
     $analysisConditionAiBuckets[$condition][$aiCorrect]['n']++;
     if ((int) $taskRow['final_decision_correct'] === 1) {
         $analysisConditionAiBuckets[$condition][$aiCorrect]['correct']++;
-    }
-}
-
-$analysisTaskRowsByParticipant = [];
-foreach ($analysisCohortTaskRows as $taskRow) {
-    $participantId = (int) ($taskRow['participant_id'] ?? 0);
-    $taskNumber = (int) ($taskRow['task_number'] ?? 0);
-    if ($participantId > 0 && $taskNumber > 0) {
-        $analysisTaskRowsByParticipant[$participantId][$taskNumber] = $taskRow;
     }
 }
 
@@ -3022,7 +3087,37 @@ require __DIR__ . '/../views/header.php';
                 </a>
             </div>
             <p class="text-sm text-slate-600 mb-4">Only fully completed participants (tasks_completed=2 and post-survey available).</p>
-            <table class="min-w-full text-sm">
+            <div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <p class="text-xs font-semibold text-slate-700">Table controls</p>
+                    <span id="data-analysis-selected-column" class="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 border border-slate-200">Selected column: -</span>
+                </div>
+                <div class="grid gap-2 md:grid-cols-[auto_minmax(220px,1fr)_auto] md:items-center">
+                    <label for="data-analysis-column-select" class="text-xs text-slate-600">Column order</label>
+                    <select id="data-analysis-column-select" class="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 shadow-sm"></select>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" id="data-analysis-open-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Filters</button>
+                        <span id="data-analysis-filter-count" class="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 border border-slate-200">0 active</span>
+                        <button type="button" id="data-analysis-move-first" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move first</button>
+                        <button type="button" id="data-analysis-move-left" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move left</button>
+                        <button type="button" id="data-analysis-move-right" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move right</button>
+                        <button type="button" id="data-analysis-move-last" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move last</button>
+                        <button type="button" id="data-analysis-clear-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Clear filters</button>
+                        <button type="button" id="data-analysis-reset" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">Reset all</button>
+                    </div>
+                </div>
+                <p class="text-[11px] text-slate-500 mt-2">Use Filters to set column filters in a popup. Move first/last helps quickly re-sequence wide tables.</p>
+            </div>
+            <div id="data-analysis-filter-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-900/40 p-4">
+                <div class="w-full max-w-3xl rounded-xl bg-white shadow-xl">
+                    <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                        <h3 class="text-sm font-semibold text-slate-800">Set filters</h3>
+                        <button type="button" id="data-analysis-close-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Close</button>
+                    </div>
+                    <div id="data-analysis-filter-fields" class="max-h-[65vh] space-y-3 overflow-y-auto px-4 py-3"></div>
+                </div>
+            </div>
+            <table id="data-analysis-table" class="min-w-full text-sm">
                 <thead>
                     <tr class="border-b border-slate-200 text-slate-600">
                         <th class="text-right py-2 pr-3">ID</th>
@@ -3104,6 +3199,118 @@ require __DIR__ . '/../views/header.php';
                     <?php endif; ?>
                 </tbody>
             </table>
+        </section>
+        <section class="bg-white shadow rounded-xl p-6 mb-4 overflow-x-auto">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">Not finished surveys</h3>
+            <p class="text-sm text-slate-600 mb-3">Participants excluded from Data for analysis because they did not complete all required study components.</p>
+            <?php if (empty($analysisNotFinishedRows)): ?>
+                <p class="text-sm text-slate-500">No unfinished surveys found.</p>
+            <?php else: ?>
+                <div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <p class="text-xs font-semibold text-slate-700">Table controls</p>
+                        <span id="data-not-finished-selected-column" class="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 border border-slate-200">Selected column: -</span>
+                    </div>
+                    <div class="grid gap-2 md:grid-cols-[auto_minmax(220px,1fr)_auto] md:items-center">
+                        <label for="data-not-finished-column-select" class="text-xs text-slate-600">Column order</label>
+                        <select id="data-not-finished-column-select" class="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 shadow-sm"></select>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" id="data-not-finished-open-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Filters</button>
+                            <span id="data-not-finished-filter-count" class="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 border border-slate-200">0 active</span>
+                            <button type="button" id="data-not-finished-move-first" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move first</button>
+                            <button type="button" id="data-not-finished-move-left" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move left</button>
+                            <button type="button" id="data-not-finished-move-right" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move right</button>
+                            <button type="button" id="data-not-finished-move-last" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move last</button>
+                            <button type="button" id="data-not-finished-clear-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Clear filters</button>
+                            <button type="button" id="data-not-finished-reset" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">Reset all</button>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-2">Use Filters to set column filters in a popup. Move first/last helps quickly re-sequence wide tables.</p>
+                </div>
+                <div id="data-not-finished-filter-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-900/40 p-4">
+                    <div class="w-full max-w-3xl rounded-xl bg-white shadow-xl">
+                        <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                            <h3 class="text-sm font-semibold text-slate-800">Set filters</h3>
+                            <button type="button" id="data-not-finished-close-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Close</button>
+                        </div>
+                        <div id="data-not-finished-filter-fields" class="max-h-[65vh] space-y-3 overflow-y-auto px-4 py-3"></div>
+                    </div>
+                </div>
+                <table id="data-not-finished-table" class="min-w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-200 text-slate-600">
+                            <th class="text-right py-2 pr-3">participant_id</th>
+                            <th class="text-left py-2 pr-3">participant_code</th>
+                            <th class="text-left py-2 pr-3">condition_name</th>
+                            <th class="text-left py-2 pr-3">task1_reliance_choice</th>
+                            <th class="text-right py-2 px-2">task1_decision_correct</th>
+                            <th class="text-right py-2 px-2">task1_confidence</th>
+                            <th class="text-right py-2 px-2">task1_relevant_doc_opened</th>
+                            <th class="text-right py-2 px-2">task1_number_docs_opened</th>
+                            <th class="text-right py-2 px-2">task1_docs_opened_any</th>
+                            <th class="text-right py-2 px-2">task1_total_doc_view_time_sec</th>
+                            <th class="text-left py-2 px-2">task2_reliance_choice</th>
+                            <th class="text-right py-2 px-2">task2_decision_correct</th>
+                            <th class="text-right py-2 px-2">task2_confidence</th>
+                            <th class="text-right py-2 px-2">task2_relevant_doc_opened</th>
+                            <th class="text-right py-2 px-2">task2_number_docs_opened</th>
+                            <th class="text-right py-2 px-2">task2_docs_opened_any</th>
+                            <th class="text-right py-2 px-2">task2_total_doc_view_time_sec</th>
+                            <th class="text-right py-2 px-2">task1_duration_sec</th>
+                            <th class="text-right py-2 px-2">task2_duration_sec</th>
+                            <th class="text-right py-2 px-2">tasks_completed</th>
+                            <th class="text-left py-2 px-2">completed_at</th>
+                            <th class="text-right py-2 px-2">serious_effort</th>
+                            <th class="text-left py-2 pl-2">reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($analysisNotFinishedRows as $row): ?>
+                            <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
+                                <td class="py-2 pr-3 text-right">
+                                    <a href="/dashboard/?tab=participant&participant_id=<?= e((string) $row['participant_id']) ?><?= e($includeTestParticipants ? '&include_test=1' : '') ?>" class="accent-text hover:underline font-medium">
+                                        <?= e((string) $row['participant_id']) ?>
+                                    </a>
+                                </td>
+                                <td class="py-2 pr-3"><?= e((string) $row['participant_code']) ?></td>
+                                <td class="py-2 pr-3"><?= e((string) $row['condition_name']) ?></td>
+                                <td class="py-2 pr-3"><?= e((string) ($row['task1_reliance_choice'] !== '' ? $row['task1_reliance_choice'] : 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_decision_correct'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_confidence'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_relevant_doc_opened'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_number_docs_opened'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_docs_opened_any'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['task1_total_doc_view_time_sec'] === null ? e('Missing') : e(number_format((float) $row['task1_total_doc_view_time_sec'], 2)) ?></td>
+                                <td class="py-2 px-2"><?= e((string) ($row['task2_reliance_choice'] !== '' ? $row['task2_reliance_choice'] : 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task2_decision_correct'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task2_confidence'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task2_relevant_doc_opened'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task2_number_docs_opened'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['task2_docs_opened_any'] ?? 'Missing')) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['task2_total_doc_view_time_sec'] === null ? e('Missing') : e(number_format((float) $row['task2_total_doc_view_time_sec'], 2)) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['task1_duration_seconds'] === null ? e('Missing') : e(number_format((float) $row['task1_duration_seconds'], 2)) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['task2_duration_seconds'] === null ? e('Missing') : e(number_format((float) $row['task2_duration_seconds'], 2)) ?></td>
+                                <td class="py-2 px-2 text-right"><?= e((string) $row['tasks_completed']) ?></td>
+                                <td class="py-2 px-2">
+                                    <?php if ((string) $row['completed_at'] === ''): ?>
+                                        <span class="text-slate-400">Not completed</span>
+                                    <?php else: ?>
+                                        <?= e(format_dashboard_datetime((string) $row['completed_at'])) ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="py-2 px-2 text-right">
+                                    <?php if ($row['serious_effort'] === null): ?>
+                                        <span class="text-slate-400">Missing</span>
+                                    <?php else: ?>
+                                        <?= e((string) $row['serious_effort']) ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="py-2 pl-2"><?= e((string) $row['reason']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         </section>
     <?php elseif ($currentTab === 'data'): ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4">
@@ -3689,6 +3896,423 @@ require __DIR__ . '/../views/header.php';
         });
     });
     updateSelectionState('.trash-row-checkbox', 'trash-selected-count', 'bulk-trash-submit', 'select-all-trash');
+
+    const initInteractiveAnalysisTable = ({
+        tableId,
+        selectId,
+        selectedColumnLabelId,
+        openFiltersId,
+        closeFiltersId,
+        filterModalId,
+        filterFieldsId,
+        filterCountId,
+        moveFirstId,
+        moveLeftId,
+        moveRightId,
+        moveLastId,
+        clearFiltersId,
+        resetId,
+    }) => {
+        const table = document.getElementById(tableId);
+        if (!table || !table.tHead || table.tBodies.length === 0) {
+            return;
+        }
+
+        const thead = table.tHead;
+        const tbody = table.tBodies[0];
+        const headerRow = thead.rows[0] || null;
+        const columnSelect = document.getElementById(selectId);
+        const selectedColumnLabel = document.getElementById(selectedColumnLabelId);
+        const openFiltersButton = document.getElementById(openFiltersId);
+        const closeFiltersButton = document.getElementById(closeFiltersId);
+        const filterModal = document.getElementById(filterModalId);
+        const filterFields = document.getElementById(filterFieldsId);
+        const filterCountLabel = document.getElementById(filterCountId);
+        const moveFirstButton = document.getElementById(moveFirstId);
+        const moveLeftButton = document.getElementById(moveLeftId);
+        const moveRightButton = document.getElementById(moveRightId);
+        const moveLastButton = document.getElementById(moveLastId);
+        const clearFiltersButton = document.getElementById(clearFiltersId);
+        const resetButton = document.getElementById(resetId);
+        if (
+            !headerRow
+            || !columnSelect
+            || !openFiltersButton
+            || !closeFiltersButton
+            || !filterModal
+            || !filterFields
+            || !moveFirstButton
+            || !moveLeftButton
+            || !moveRightButton
+            || !moveLastButton
+            || !clearFiltersButton
+            || !resetButton
+        ) {
+            return;
+        }
+
+        const originalOrder = Array.from(headerRow.cells, (cell) => cell.textContent ? cell.textContent.trim() : '');
+        const getBodyRows = () => Array.from(tbody.rows).filter((row) => row.cells.length === headerRow.cells.length);
+        const parseNumericValue = (rawValue) => {
+            const normalized = String(rawValue || '')
+                .replace(/,/g, '')
+                .replace(/%/g, '')
+                .trim();
+            if (normalized === '') {
+                return null;
+            }
+            const parsed = Number(normalized);
+            return Number.isFinite(parsed) ? parsed : null;
+        };
+
+        const getColumnIndexByLabel = (label) => Array.from(headerRow.cells).findIndex(
+            (cell) => (cell.textContent || '').trim() === label
+        );
+        const filterControls = [];
+        Array.from(headerRow.cells).forEach((cell, columnIndex) => {
+            const columnLabel = (cell.textContent || '').trim();
+            const fieldRow = document.createElement('div');
+            fieldRow.className = 'grid gap-2 md:grid-cols-[minmax(180px,240px)_1fr] md:items-center';
+
+            const fieldLabel = document.createElement('label');
+            fieldLabel.className = 'text-xs font-medium text-slate-700';
+            fieldLabel.textContent = columnLabel;
+            fieldRow.appendChild(fieldLabel);
+
+            const inputWrap = document.createElement('div');
+            const columnValues = getBodyRows().map((row) => (row.cells[columnIndex]?.textContent || '').trim());
+            const nonEmptyValues = columnValues.filter((value) => value !== '');
+            const numericValues = nonEmptyValues
+                .map((value) => parseNumericValue(value))
+                .filter((value) => value !== null);
+            const isNumericColumn = nonEmptyValues.length > 0 && numericValues.length === nonEmptyValues.length;
+            const uniqueValues = Array.from(new Set(nonEmptyValues)).sort((a, b) => a.localeCompare(b));
+
+            if (isNumericColumn) {
+                inputWrap.className = 'grid grid-cols-2 gap-2';
+                const minInput = document.createElement('input');
+                minInput.type = 'number';
+                minInput.step = 'any';
+                minInput.className = 'w-full rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300';
+                minInput.placeholder = 'Min';
+                const maxInput = document.createElement('input');
+                maxInput.type = 'number';
+                maxInput.step = 'any';
+                maxInput.className = 'w-full rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300';
+                maxInput.placeholder = 'Max';
+                inputWrap.appendChild(minInput);
+                inputWrap.appendChild(maxInput);
+                filterControls.push({ type: 'numeric', columnLabel, minInput, maxInput });
+            } else if (uniqueValues.length > 0 && uniqueValues.length <= 10) {
+                inputWrap.className = '';
+                const select = document.createElement('select');
+                select.className = 'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300';
+                const allOption = document.createElement('option');
+                allOption.value = '';
+                allOption.textContent = 'All values';
+                select.appendChild(allOption);
+                uniqueValues.forEach((value) => {
+                    const option = document.createElement('option');
+                    option.value = value.toLowerCase();
+                    option.textContent = value;
+                    select.appendChild(option);
+                });
+                inputWrap.appendChild(select);
+                filterControls.push({ type: 'select', columnLabel, select });
+            } else {
+                inputWrap.className = '';
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'w-full rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300';
+                input.placeholder = 'Search...';
+                inputWrap.appendChild(input);
+                filterControls.push({ type: 'text', columnLabel, input });
+            }
+
+            fieldRow.appendChild(inputWrap);
+            filterFields.appendChild(fieldRow);
+        });
+
+        const applyFilters = () => {
+            const allRows = Array.from(tbody.rows);
+            const dataRows = allRows.filter((row) => row.cells.length === headerRow.cells.length);
+            const messageRow = allRows.find((row) => row.cells.length !== headerRow.cells.length) || null;
+            let visibleCount = 0;
+            dataRows.forEach((row) => {
+                let rowVisible = true;
+                filterControls.forEach((control) => {
+                    if (!rowVisible) {
+                        return;
+                    }
+                    const index = getColumnIndexByLabel(control.columnLabel);
+                    if (index < 0) {
+                        return;
+                    }
+                    const rawCellValue = (row.cells[index]?.textContent || '').trim();
+                    const normalizedCellValue = rawCellValue.toLowerCase();
+                    if (control.type === 'select') {
+                        const selected = (control.select.value || '').trim();
+                        if (selected !== '' && normalizedCellValue !== selected) {
+                            rowVisible = false;
+                        }
+                        return;
+                    }
+                    if (control.type === 'numeric') {
+                        const minInput = control.minInput;
+                        const maxInput = control.maxInput;
+                        const numericValue = parseNumericValue(rawCellValue);
+                        if (numericValue === null) {
+                            if ((minInput && minInput.value !== '') || (maxInput && maxInput.value !== '')) {
+                                rowVisible = false;
+                            }
+                            return;
+                        }
+                        if (minInput && minInput.value !== '' && numericValue < Number(minInput.value)) {
+                            rowVisible = false;
+                            return;
+                        }
+                        if (maxInput && maxInput.value !== '' && numericValue > Number(maxInput.value)) {
+                            rowVisible = false;
+                        }
+                        return;
+                    }
+                    const query = control.input.value.trim().toLowerCase();
+                    if (query !== '' && !normalizedCellValue.includes(query)) {
+                        rowVisible = false;
+                    }
+                });
+                row.style.display = rowVisible ? '' : 'none';
+                if (rowVisible) {
+                    visibleCount++;
+                }
+            });
+            if (messageRow) {
+                if (dataRows.length === 0 || visibleCount === 0) {
+                    messageRow.style.display = '';
+                    if (dataRows.length > 0 && messageRow.cells.length > 0) {
+                        messageRow.cells[0].textContent = 'No rows match current filters.';
+                    }
+                } else {
+                    messageRow.style.display = 'none';
+                }
+            }
+
+            let activeFilterCount = 0;
+            filterControls.forEach((control) => {
+                if (control.type === 'numeric') {
+                    if (control.minInput.value !== '' || control.maxInput.value !== '') {
+                        activeFilterCount++;
+                    }
+                } else if (control.type === 'select') {
+                    if ((control.select.value || '') !== '') {
+                        activeFilterCount++;
+                    }
+                } else if ((control.input.value || '').trim() !== '') {
+                    activeFilterCount++;
+                }
+            });
+            if (filterCountLabel) {
+                filterCountLabel.textContent = `${activeFilterCount} active`;
+            }
+        };
+
+        const syncColumnSelector = () => {
+            const selectedText = columnSelect.value;
+            const currentLabels = Array.from(headerRow.cells, (cell) => cell.textContent ? cell.textContent.trim() : '');
+            columnSelect.innerHTML = '';
+            currentLabels.forEach((label) => {
+                const option = document.createElement('option');
+                option.value = label;
+                option.textContent = label;
+                columnSelect.appendChild(option);
+            });
+            if (selectedText && currentLabels.includes(selectedText)) {
+                columnSelect.value = selectedText;
+            } else if (currentLabels.length > 0) {
+                columnSelect.value = currentLabels[0];
+            }
+            const selectedIndex = getSelectedIndex();
+            const selectedLabel = columnSelect.value || '-';
+            if (selectedColumnLabel) {
+                selectedColumnLabel.textContent = `Selected column: ${selectedLabel}`;
+            }
+            const atStart = selectedIndex <= 0;
+            const atEnd = selectedIndex < 0 || selectedIndex >= headerRow.cells.length - 1;
+            [moveFirstButton, moveLeftButton].forEach((button) => {
+                button.disabled = atStart;
+                button.classList.toggle('opacity-50', atStart);
+                button.classList.toggle('cursor-not-allowed', atStart);
+            });
+            [moveRightButton, moveLastButton].forEach((button) => {
+                button.disabled = atEnd;
+                button.classList.toggle('opacity-50', atEnd);
+                button.classList.toggle('cursor-not-allowed', atEnd);
+            });
+        };
+
+        const moveColumn = (fromIndex, toIndex) => {
+            if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+                return;
+            }
+            const rows = [...Array.from(thead.rows), ...Array.from(tbody.rows)];
+            rows.forEach((row) => {
+                if (row.cells.length <= Math.max(fromIndex, toIndex)) {
+                    return;
+                }
+                const sourceCell = row.cells[fromIndex];
+                const targetCell = row.cells[toIndex];
+                if (!sourceCell || !targetCell) {
+                    return;
+                }
+                if (fromIndex < toIndex) {
+                    row.insertBefore(sourceCell, targetCell.nextSibling);
+                } else {
+                    row.insertBefore(sourceCell, targetCell);
+                }
+            });
+        };
+
+        const getSelectedIndex = () => {
+            const selectedLabel = columnSelect.value;
+            return Array.from(headerRow.cells).findIndex((cell) => (cell.textContent || '').trim() === selectedLabel);
+        };
+
+        moveLeftButton.addEventListener('click', () => {
+            const currentIndex = getSelectedIndex();
+            if (currentIndex <= 0) {
+                return;
+            }
+            moveColumn(currentIndex, currentIndex - 1);
+            syncColumnSelector();
+            applyFilters();
+        });
+
+        moveRightButton.addEventListener('click', () => {
+            const currentIndex = getSelectedIndex();
+            if (currentIndex < 0 || currentIndex >= headerRow.cells.length - 1) {
+                return;
+            }
+            moveColumn(currentIndex, currentIndex + 1);
+            syncColumnSelector();
+            applyFilters();
+        });
+
+        moveFirstButton.addEventListener('click', () => {
+            const currentIndex = getSelectedIndex();
+            if (currentIndex <= 0) {
+                return;
+            }
+            moveColumn(currentIndex, 0);
+            syncColumnSelector();
+            applyFilters();
+        });
+
+        moveLastButton.addEventListener('click', () => {
+            const currentIndex = getSelectedIndex();
+            const lastIndex = headerRow.cells.length - 1;
+            if (currentIndex < 0 || currentIndex >= lastIndex) {
+                return;
+            }
+            moveColumn(currentIndex, lastIndex);
+            syncColumnSelector();
+            applyFilters();
+        });
+
+        const clearAllFilters = () => {
+            filterControls.forEach((control) => {
+                if (control.type === 'numeric') {
+                    control.minInput.value = '';
+                    control.maxInput.value = '';
+                } else if (control.type === 'select') {
+                    control.select.value = '';
+                } else {
+                    control.input.value = '';
+                }
+            });
+        };
+
+        clearFiltersButton.addEventListener('click', () => {
+            clearAllFilters();
+            applyFilters();
+        });
+
+        resetButton.addEventListener('click', () => {
+            originalOrder.forEach((label, targetIndex) => {
+                const currentIndex = Array.from(headerRow.cells).findIndex((cell) => (cell.textContent || '').trim() === label);
+                if (currentIndex >= 0 && currentIndex !== targetIndex) {
+                    moveColumn(currentIndex, targetIndex);
+                }
+            });
+            clearAllFilters();
+            syncColumnSelector();
+            applyFilters();
+        });
+
+        filterControls.forEach((control) => {
+            if (control.type === 'numeric') {
+                control.minInput.addEventListener('input', applyFilters);
+                control.maxInput.addEventListener('input', applyFilters);
+            } else if (control.type === 'select') {
+                control.select.addEventListener('change', applyFilters);
+            } else {
+                control.input.addEventListener('input', applyFilters);
+            }
+        });
+
+        const openFilterModal = () => {
+            filterModal.classList.remove('hidden');
+            filterModal.classList.add('flex');
+        };
+        const closeFilterModal = () => {
+            filterModal.classList.add('hidden');
+            filterModal.classList.remove('flex');
+        };
+        openFiltersButton.addEventListener('click', openFilterModal);
+        closeFiltersButton.addEventListener('click', closeFilterModal);
+        filterModal.addEventListener('click', (event) => {
+            if (event.target === filterModal) {
+                closeFilterModal();
+            }
+        });
+
+        columnSelect.addEventListener('change', syncColumnSelector);
+
+        syncColumnSelector();
+        applyFilters();
+    };
+
+    initInteractiveAnalysisTable({
+        tableId: 'data-analysis-table',
+        selectId: 'data-analysis-column-select',
+        selectedColumnLabelId: 'data-analysis-selected-column',
+        openFiltersId: 'data-analysis-open-filters',
+        closeFiltersId: 'data-analysis-close-filters',
+        filterModalId: 'data-analysis-filter-modal',
+        filterFieldsId: 'data-analysis-filter-fields',
+        filterCountId: 'data-analysis-filter-count',
+        moveFirstId: 'data-analysis-move-first',
+        moveLeftId: 'data-analysis-move-left',
+        moveRightId: 'data-analysis-move-right',
+        moveLastId: 'data-analysis-move-last',
+        clearFiltersId: 'data-analysis-clear-filters',
+        resetId: 'data-analysis-reset',
+    });
+    initInteractiveAnalysisTable({
+        tableId: 'data-not-finished-table',
+        selectId: 'data-not-finished-column-select',
+        selectedColumnLabelId: 'data-not-finished-selected-column',
+        openFiltersId: 'data-not-finished-open-filters',
+        closeFiltersId: 'data-not-finished-close-filters',
+        filterModalId: 'data-not-finished-filter-modal',
+        filterFieldsId: 'data-not-finished-filter-fields',
+        filterCountId: 'data-not-finished-filter-count',
+        moveFirstId: 'data-not-finished-move-first',
+        moveLeftId: 'data-not-finished-move-left',
+        moveRightId: 'data-not-finished-move-right',
+        moveLastId: 'data-not-finished-move-last',
+        clearFiltersId: 'data-not-finished-clear-filters',
+        resetId: 'data-not-finished-reset',
+    });
 })();
 </script>
 

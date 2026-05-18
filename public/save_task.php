@@ -180,21 +180,6 @@ if ($elapsedSeconds < 3) {
 $taskSubmittedAt = date('Y-m-d H:i:s', $taskSubmittedTs);
 session_set('task_' . $taskNumber . '_total_time_seconds', $elapsedSeconds);
 $taskShortTimeFlag = $elapsedSeconds < 30 ? 1 : 0;
-$activeReflectionParts = [
-    'selected_response_option=' . $selectedResponseOption,
-    'selected_option_key=' . $selectedOptionKey,
-    'selected_display_letter=' . $selectedDisplayLetter,
-    'response_option_order=' . $responseOptionOrderJson,
-    'response_correctness=' . ($responseCorrectness === null ? '' : (string) $responseCorrectness),
-    'manual_code_required=' . (string) $manualCodeRequired,
-];
-if ($customResponseText !== '') {
-    $activeReflectionParts[] = 'custom_response_text=' . str_replace(["\r", "\n"], ' ', $customResponseText);
-}
-if ($conditionName === 'active' && $verificationIntention !== null && $verificationIntention !== '') {
-    $activeReflectionParts[] = 'verification_intention=' . $verificationIntention;
-}
-$activeReflectionPayload = implode("\n", $activeReflectionParts);
 
 $pdo = db();
 $existingTaskStmt = $pdo->prepare(
@@ -232,11 +217,19 @@ $hasNumberDocumentsOpenedColumn = false;
 $hasTotalDocumentViewTimeMsColumn = false;
 $hasRelevantDocumentViewTimeMsColumn = false;
 $hasCustomResponseTextColumn = false;
+$verificationIntentionMaxLength = null;
 try {
     $durationCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'duration_seconds'");
     $hasDurationColumns = $durationCheck !== false && $durationCheck->fetch() !== false;
     $verificationCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'verification_intention'");
-    $hasVerificationColumns = $verificationCheck !== false && $verificationCheck->fetch() !== false;
+    $verificationColumn = $verificationCheck !== false ? $verificationCheck->fetch(PDO::FETCH_ASSOC) : false;
+    $hasVerificationColumns = $verificationColumn !== false;
+    if (is_array($verificationColumn)) {
+        $verificationType = strtolower((string) ($verificationColumn['Type'] ?? ''));
+        if (preg_match('/^(?:var)?char\((\d+)\)/', $verificationType, $matches) === 1) {
+            $verificationIntentionMaxLength = max(1, (int) $matches[1]);
+        }
+    }
     $selectedResponseOptionCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'selected_response_option'");
     $hasSelectedResponseOptionColumn = $selectedResponseOptionCheck !== false && $selectedResponseOptionCheck->fetch() !== false;
     $selectedOptionKeyCheck = $pdo->query("SHOW COLUMNS FROM task_responses LIKE 'selected_option_key'");
@@ -273,7 +266,37 @@ try {
     $hasTotalDocumentViewTimeMsColumn = false;
     $hasRelevantDocumentViewTimeMsColumn = false;
     $hasCustomResponseTextColumn = false;
+    $verificationIntentionMaxLength = null;
 }
+
+if (
+    $conditionName === 'active'
+    && $verificationIntention !== null
+    && $verificationIntention !== ''
+    && $verificationIntentionMaxLength !== null
+) {
+    if (function_exists('mb_substr')) {
+        $verificationIntention = mb_substr($verificationIntention, 0, $verificationIntentionMaxLength);
+    } else {
+        $verificationIntention = substr($verificationIntention, 0, $verificationIntentionMaxLength);
+    }
+}
+
+$activeReflectionParts = [
+    'selected_response_option=' . $selectedResponseOption,
+    'selected_option_key=' . $selectedOptionKey,
+    'selected_display_letter=' . $selectedDisplayLetter,
+    'response_option_order=' . $responseOptionOrderJson,
+    'response_correctness=' . ($responseCorrectness === null ? '' : (string) $responseCorrectness),
+    'manual_code_required=' . (string) $manualCodeRequired,
+];
+if ($customResponseText !== '') {
+    $activeReflectionParts[] = 'custom_response_text=' . str_replace(["\r", "\n"], ' ', $customResponseText);
+}
+if ($conditionName === 'active' && $verificationIntention !== null && $verificationIntention !== '') {
+    $activeReflectionParts[] = 'verification_intention=' . $verificationIntention;
+}
+$activeReflectionPayload = implode("\n", $activeReflectionParts);
 
 $relevantDocumentOpened = null;
 $numberDocumentsOpened = null;

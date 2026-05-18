@@ -42,7 +42,7 @@ CREATE TABLE task_responses (
     manual_code_required TINYINT(1) NOT NULL DEFAULT 0,
     custom_response_text TEXT NULL,
     active_reflection TEXT NULL,
-    verification_intention VARCHAR(60) NULL,
+    verification_intention TEXT NULL,
     relevant_document_opened TINYINT(1) NULL,
     number_documents_opened INT UNSIGNED NULL,
     total_document_view_time_ms INT UNSIGNED NULL,

@@ -76,6 +76,18 @@ SET @sql = IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- 3c) Expand verification_intention to TEXT to avoid truncation on longer active-cue input.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = @db_name
+        AND TABLE_NAME = 'task_responses'
+        AND COLUMN_NAME = 'verification_intention'
+        AND DATA_TYPE <> 'text') > 0,
+    'ALTER TABLE task_responses MODIFY COLUMN verification_intention TEXT NULL',
+    'SELECT ''verification_intention already TEXT or absent'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- 4) Ensure raffle table exists.
 CREATE TABLE IF NOT EXISTS raffle_entries (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

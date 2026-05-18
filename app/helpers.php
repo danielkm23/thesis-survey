@@ -63,19 +63,28 @@ function generate_test_participant_code(PDO $pdo): string
 /**
  * Chooses a condition with balancing toward equal completed counts.
  *
- * Primary criterion: fewest fully completed participants per condition.
- * Tie-breaker: fewest started participants per condition.
+ * Primary criterion: fewest effective assignments per condition
+ * (completed + weighted unfinished recent starts).
+ * Tie-breaker: fewest fully completed participants per condition.
+ * Secondary tie-breaker: fewest unfinished recent starts per condition.
  * Final tie: random among remaining tied conditions.
  */
 function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = true): string
 {
     $conditions = ['control', 'passive', 'active'];
-    $startedByCondition = array_fill_keys($conditions, 0);
+    $recentActiveStartsByCondition = array_fill_keys($conditions, 0);
     $completedByCondition = array_fill_keys($conditions, 0);
+    $activeStartWindowMinutes = defined('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES')
+        ? max(1, (int) RANDOMIZER_ACTIVE_START_WINDOW_MINUTES)
+        : 30;
+    $activeStartWeight = defined('RANDOMIZER_ACTIVE_START_WEIGHT')
+        ? min(1.0, max(0.0, (float) RANDOMIZER_ACTIVE_START_WEIGHT))
+        : 0.6;
+    $recentStartedAfter = date('Y-m-d H:i:s', time() - ($activeStartWindowMinutes * 60));
 
     $sql = 'SELECT
                 condition_name,
-                COUNT(*) AS started_count,
+                SUM(CASE WHEN completed_at IS NULL AND started_at >= :recent_started_after THEN 1 ELSE 0 END) AS recent_active_starts,
                 SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed_count
             FROM participants
             WHERE condition_name IN (\'control\', \'passive\', \'active\')';
@@ -87,6 +96,7 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
     $sql .= ' GROUP BY condition_name';
 
     $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(':recent_started_after', $recentStartedAfter, PDO::PARAM_STR);
     if ($excludeTestParticipants) {
         $testPrefix = defined('TEST_PARTICIPANT_PREFIX') ? (string) TEST_PARTICIPANT_PREFIX : 'TEST-';
         $stmt->bindValue(':test_prefix', $testPrefix . '%', PDO::PARAM_STR);
@@ -95,16 +105,38 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
 
     foreach ($stmt->fetchAll() as $row) {
         $condition = (string) ($row['condition_name'] ?? '');
-        if (!array_key_exists($condition, $startedByCondition)) {
+        if (!array_key_exists($condition, $recentActiveStartsByCondition)) {
             continue;
         }
-        $startedByCondition[$condition] = (int) ($row['started_count'] ?? 0);
+        $recentActiveStartsByCondition[$condition] = (int) ($row['recent_active_starts'] ?? 0);
         $completedByCondition[$condition] = (int) ($row['completed_count'] ?? 0);
     }
 
-    $minCompleted = min($completedByCondition);
+    $effectiveLoadByCondition = [];
+    foreach ($conditions as $condition) {
+        $completedCount = (int) ($completedByCondition[$condition] ?? 0);
+        $recentActiveStarts = (int) ($recentActiveStartsByCondition[$condition] ?? 0);
+        $effectiveLoadByCondition[$condition] = $completedCount + ($recentActiveStarts * $activeStartWeight);
+    }
+
+    $minEffectiveLoad = min($effectiveLoadByCondition);
+    $leastLoaded = array_keys(array_filter(
+        $effectiveLoadByCondition,
+        static fn (float $count): bool => abs($count - $minEffectiveLoad) < 0.000001
+    ));
+
+    if (count($leastLoaded) === 1) {
+        return $leastLoaded[0];
+    }
+
+    $candidateCompleted = [];
+    foreach ($leastLoaded as $condition) {
+        $candidateCompleted[$condition] = $completedByCondition[$condition] ?? PHP_INT_MAX;
+    }
+
+    $minCompleted = min($candidateCompleted);
     $leastCompleted = array_keys(array_filter(
-        $completedByCondition,
+        $candidateCompleted,
         static fn (int $count): bool => $count === $minCompleted
     ));
 
@@ -114,7 +146,7 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
 
     $candidateStarted = [];
     foreach ($leastCompleted as $condition) {
-        $candidateStarted[$condition] = $startedByCondition[$condition] ?? PHP_INT_MAX;
+        $candidateStarted[$condition] = $recentActiveStartsByCondition[$condition] ?? PHP_INT_MAX;
     }
 
     $minStarted = min($candidateStarted);
