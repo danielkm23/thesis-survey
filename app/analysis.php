@@ -503,6 +503,7 @@ function analysis_task_level(PDO $pdo, bool $includeTestParticipants = false): a
 function analysis_participant_summary(PDO $pdo, bool $includeTestParticipants = false): array
 {
     $taskRows = analysis_task_level($pdo, $includeTestParticipants);
+    $hasProlific = analysis_column_exists($pdo, 'participants', 'prolific');
     $tasksByParticipant = [];
     foreach ($taskRows as $taskRow) {
         $participantId = (int) $taskRow['participant_id'];
@@ -524,7 +525,8 @@ function analysis_participant_summary(PDO $pdo, bool $includeTestParticipants = 
 
     $participantFilterClause = analysis_participant_filter_clause('p', $includeTestParticipants);
     $participantsStmt = $pdo->query(
-        'SELECT id AS participant_id, participant_code, condition_name, started_at, completed_at
+        'SELECT id AS participant_id, participant_code, condition_name, started_at, completed_at, '
+        . ($hasProlific ? 'prolific' : 'NULL AS prolific') . '
          FROM participants p
          ' . $participantFilterClause . '
          ORDER BY id ASC'
@@ -593,6 +595,7 @@ function analysis_participant_summary(PDO $pdo, bool $includeTestParticipants = 
             'participant_id' => $participantId,
             'participant_code' => (string) $participant['participant_code'],
             'condition_name' => (string) $participant['condition_name'],
+            'prolific' => $participant['prolific'] !== null ? (string) $participant['prolific'] : 'no',
             'tasks_completed' => $tasksCompleted,
             'correct_count' => $correctCount,
             'correct_pct' => $tasksCompleted > 0 ? round(($correctCount / $tasksCompleted) * 100.0, 2) : null,

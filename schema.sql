@@ -4,7 +4,8 @@ CREATE TABLE participants (
     condition_name VARCHAR(50) NOT NULL,
     started_at DATETIME NOT NULL,
     completed_at DATETIME NULL,
-    study_participation_code VARCHAR(100) NULL
+    study_participation_code VARCHAR(100) NULL,
+    prolific VARCHAR(3) NOT NULL DEFAULT 'no'
 );
 
 CREATE TABLE document_events (

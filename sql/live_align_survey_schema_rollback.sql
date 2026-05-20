@@ -10,6 +10,9 @@ ALTER TABLE postsurvey_responses
 ALTER TABLE task_responses
     ADD COLUMN IF NOT EXISTS decision_justification TEXT NULL;
 
+ALTER TABLE participants
+    DROP COLUMN IF EXISTS prolific;
+
 DROP TABLE IF EXISTS raffle_entries;
 
 SELECT 'postsurvey_responses columns after rollback' AS section;

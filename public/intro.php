@@ -19,6 +19,8 @@ try {
     $pdo = db();
     $participantCodeCheck = $pdo->query("SHOW COLUMNS FROM participants LIKE 'study_participation_code'");
     $hasParticipationCodeColumn = $participantCodeCheck !== false && $participantCodeCheck->fetch() !== false;
+    $participantProlificCheck = $pdo->query("SHOW COLUMNS FROM participants LIKE 'prolific'");
+    $hasProlificColumn = $participantProlificCheck !== false && $participantProlificCheck->fetch() !== false;
     if ($hasParticipationCodeColumn && $participantId > 0) {
         $existingCodeStmt = $pdo->prepare(
             'SELECT study_participation_code
@@ -50,9 +52,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$hasParticipationCodeColumn) {
                 $pdo->exec('ALTER TABLE participants ADD COLUMN study_participation_code VARCHAR(100) NULL');
             }
+            $participantProlificCheck = $pdo->query("SHOW COLUMNS FROM participants LIKE 'prolific'");
+            $hasProlificColumn = $participantProlificCheck !== false && $participantProlificCheck->fetch() !== false;
+            if (!$hasProlificColumn) {
+                $pdo->exec("ALTER TABLE participants ADD COLUMN prolific VARCHAR(3) NOT NULL DEFAULT 'no'");
+            }
             $saveCodeStmt = $pdo->prepare(
                 'UPDATE participants
-                 SET study_participation_code = :study_participation_code
+                 SET study_participation_code = :study_participation_code,
+                     prolific = CASE
+                         WHEN (id BETWEEN 103 AND 139) OR (id BETWEEN 164 AND 182) THEN \'yes\'
+                         WHEN :study_participation_code IS NOT NULL AND :study_participation_code <> \'\' THEN \'yes\'
+                         ELSE \'no\'
+                     END
                  WHERE id = :participant_id'
             );
             $saveCodeStmt->execute([

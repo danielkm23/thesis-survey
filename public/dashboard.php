@@ -668,6 +668,11 @@ if ($currentTab === 'data') {
     foreach ($columnsStmt->fetchAll() as $columnRow) {
         $dataColumns[] = (string) $columnRow['Field'];
     }
+    $hasNativeProlificColumn = in_array('prolific', $dataColumns, true);
+    $needsComputedProlificColumn = $selectedTable === 'participants' && !$hasNativeProlificColumn;
+    if ($needsComputedProlificColumn) {
+        $dataColumns[] = 'prolific';
+    }
 
     if (!in_array('id', $dataColumns, true) && !empty($dataColumns)) {
         $sortColumn = $dataColumns[0];
@@ -686,9 +691,22 @@ if ($currentTab === 'data') {
     $dataPage = min($dataPage, $dataTotalPages);
     $dataOffset = ($dataPage - 1) * $rowsPerPage;
 
-    $rowsStmt = $pdo->prepare(
-        'SELECT * FROM ' . $selectedTable . ' ORDER BY `' . $sortColumn . '` ' . strtoupper($sortDirection) . ' LIMIT :limit OFFSET :offset'
-    );
+    $rowsSql = 'SELECT * FROM ' . $selectedTable;
+    if ($needsComputedProlificColumn) {
+        $rowsSql = 'SELECT p.*, CASE
+                WHEN (p.id BETWEEN 103 AND 139) OR (p.id BETWEEN 164 AND 182) THEN \'yes\'
+                WHEN p.study_participation_code IS NOT NULL AND TRIM(p.study_participation_code) <> \'\' THEN \'yes\'
+                ELSE \'no\'
+            END AS prolific
+            FROM participants p';
+    }
+    if ($needsComputedProlificColumn && $sortColumn === 'prolific') {
+        $rowsSql .= ' ORDER BY prolific ' . strtoupper($sortDirection);
+    } else {
+        $rowsSql .= ' ORDER BY `' . $sortColumn . '` ' . strtoupper($sortDirection);
+    }
+    $rowsSql .= ' LIMIT :limit OFFSET :offset';
+    $rowsStmt = $pdo->prepare($rowsSql);
     $rowsStmt->bindValue(':limit', $rowsPerPage, PDO::PARAM_INT);
     $rowsStmt->bindValue(':offset', $dataOffset, PDO::PARAM_INT);
     $rowsStmt->execute();
@@ -768,6 +786,13 @@ if ($currentTab === 'full_raw_data') {
         'submitted_at',
     ];
 
+    $fullRawProlificSql = isset($participantColumns['prolific'])
+        ? 'p.prolific'
+        : "CASE
+            WHEN (p.id BETWEEN 103 AND 139) OR (p.id BETWEEN 164 AND 182) THEN 'yes'
+            WHEN p.study_participation_code IS NOT NULL AND TRIM(p.study_participation_code) <> '' THEN 'yes'
+            ELSE 'no'
+          END";
     $fullRawSelectParts = [
         'p.id AS participant_id',
         'p.participant_code',
@@ -775,6 +800,7 @@ if ($currentTab === 'full_raw_data') {
         'p.started_at',
         'p.completed_at',
         (isset($participantColumns['study_participation_code']) ? 'p.study_participation_code' : 'NULL') . ' AS study_participation_code',
+        $fullRawProlificSql . ' AS prolific',
     ];
 
     foreach ($taskFields as $field) {
@@ -847,6 +873,7 @@ if ($currentTab === 'full_raw_data') {
             'started_at',
             'completed_at',
             'study_participation_code',
+            'prolific',
             'task1_selected_option_key',
             'task2_selected_option_key',
             'postsurvey_ai_experience',
@@ -1029,6 +1056,15 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
     $participantStmt = $pdo->prepare('SELECT * FROM participants WHERE id = :id');
     $participantStmt->execute([':id' => $participantDetailId]);
     $participantDetail = $participantStmt->fetch() ?: null;
+    if ($participantDetail !== null && !array_key_exists('prolific', $participantDetail)) {
+        $participantIdForProlific = (int) ($participantDetail['id'] ?? 0);
+        $hasStudyCode = trim((string) ($participantDetail['study_participation_code'] ?? '')) !== '';
+        $participantDetail['prolific'] = (
+            ($participantIdForProlific >= 103 && $participantIdForProlific <= 139)
+            || ($participantIdForProlific >= 164 && $participantIdForProlific <= 182)
+            || $hasStudyCode
+        ) ? 'yes' : 'no';
+    }
 
     if ($participantDetail !== null) {
         $participantTaskStmt = $pdo->prepare(
@@ -1387,6 +1423,7 @@ $analysisParticipantRows = analysis_participant_summary($pdo, $includeTestPartic
 
 $analysisTotalRespondents = count($analysisParticipantRows);
 $analysisCompletedRespondents = 0;
+$analysisCompletedProlificRespondents = 0;
 $analysisAvgCorrectPctSum = 0.0;
 $analysisAvgCorrectPctCount = 0;
 $analysisAvgConfidenceSum = 0.0;
@@ -1408,8 +1445,14 @@ foreach ($analysisParticipantRows as $participantRow) {
     $correctCount = (int) ($participantRow['correct_count'] ?? 0);
     $relevantRate = $participantRow['relevant_doc_open_rate'];
 
-    if (($participantRow['completed_at'] ?? null) !== null && trim((string) $participantRow['completed_at']) !== '') {
+    $isCompletedParticipant = ($participantRow['completed_at'] ?? null) !== null
+        && trim((string) $participantRow['completed_at']) !== '';
+    if ($isCompletedParticipant) {
         $analysisCompletedRespondents++;
+        $isProlificParticipant = strtolower(trim((string) ($participantRow['prolific'] ?? 'no'))) === 'yes';
+        if ($isProlificParticipant) {
+            $analysisCompletedProlificRespondents++;
+        }
     }
     if ($participantRow['correct_pct'] !== null) {
         $analysisAvgCorrectPctSum += (float) $participantRow['correct_pct'];
@@ -1722,6 +1765,7 @@ foreach ($analysisCohortParticipants as $participantRow) {
         'participant_id' => $participantId,
         'participant_code' => (string) ($participantRow['participant_code'] ?? ''),
         'condition_name' => (string) ($participantRow['condition_name'] ?? ''),
+        'prolific' => (string) ($participantRow['prolific'] ?? 'no'),
         'task1_reliance_choice' => is_array($task1) ? (string) ($task1['reliance_choice'] ?? '') : '',
         'task1_decision_correct' => is_array($task1) ? ($task1['final_decision_correct'] ?? null) : null,
         'task1_confidence' => is_array($task1) ? ($task1['confidence'] ?? null) : null,
@@ -1776,6 +1820,7 @@ $analysisDataForAnalysisColumns = [
     'participant_id',
     'participant_code',
     'condition_name',
+    'prolific',
     'task1_reliance_choice',
     'task1_decision_correct',
     'task1_confidence',
@@ -2362,6 +2407,7 @@ require __DIR__ . '/../views/header.php';
             <article class="bg-white shadow rounded-xl p-6 min-h-36">
                 <p class="text-sm font-medium text-slate-500">Completed respondents</p>
                 <p class="text-3xl font-bold text-slate-800 mt-2"><?= e((string) $analysisCompletedRespondents) ?></p>
+                <p class="text-xs text-slate-500 mt-2">From Prolific: <?= e((string) $analysisCompletedProlificRespondents) ?></p>
             </article>
             <article class="bg-white shadow rounded-xl p-6 min-h-36">
                 <p class="text-sm font-medium text-slate-500">Completion rate</p>
@@ -3123,6 +3169,7 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-right py-2 pr-3">ID</th>
                         <th class="text-left py-2 pr-3">participant_code</th>
                         <th class="text-left py-2 pr-3">condition</th>
+                        <th class="text-left py-2 pr-3">prolific</th>
                         <th class="text-left py-2 pr-3">task1_reliance_choice</th>
                         <th class="text-right py-2 px-2">task1_decision_correct</th>
                         <th class="text-right py-2 px-2">task1_confidence</th>
@@ -3155,7 +3202,7 @@ require __DIR__ . '/../views/header.php';
                 <tbody>
                     <?php if (empty($analysisDataForAnalysisRows)): ?>
                         <tr>
-                            <td class="py-3 text-slate-500" colspan="30">No fully completed participants found.</td>
+                            <td class="py-3 text-slate-500" colspan="31">No fully completed participants found.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($analysisDataForAnalysisRows as $row): ?>
@@ -3167,6 +3214,7 @@ require __DIR__ . '/../views/header.php';
                                 </td>
                                 <td class="py-2 pr-3"><?= e((string) ($row['participant_code'] ?? '')) ?></td>
                                 <td class="py-2 pr-3"><?= e((string) ($row['condition_name'] ?? '')) ?></td>
+                                <td class="py-2 pr-3"><?= e((string) ($row['prolific'] ?? '')) ?></td>
                                 <td class="py-2 pr-3"><?= e((string) ($row['task1_reliance_choice'] ?? '')) ?></td>
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_decision_correct'] ?? '')) ?></td>
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_confidence'] ?? '')) ?></td>

@@ -67,6 +67,23 @@ SET @sql = IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- 3bb) Ensure participant prolific-source marker exists.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = @db_name AND TABLE_NAME = 'participants' AND COLUMN_NAME = 'prolific') = 0,
+    'ALTER TABLE participants ADD COLUMN prolific VARCHAR(3) NOT NULL DEFAULT ''no''',
+    'SELECT ''prolific already exists'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3bc) Backfill prolific=yes for known Prolific ID ranges and rows with study code.
+UPDATE participants
+SET prolific = CASE
+    WHEN (id BETWEEN 103 AND 139) OR (id BETWEEN 164 AND 182) THEN 'yes'
+    WHEN study_participation_code IS NOT NULL AND TRIM(study_participation_code) <> '' THEN 'yes'
+    ELSE 'no'
+END;
+
 -- 3) Drop deprecated task field if present.
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
