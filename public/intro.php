@@ -62,13 +62,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  SET study_participation_code = :study_participation_code,
                      prolific = CASE
                          WHEN (id BETWEEN 103 AND 139) OR (id BETWEEN 164 AND 182) THEN \'yes\'
-                         WHEN :study_participation_code IS NOT NULL AND :study_participation_code <> \'\' THEN \'yes\'
+                         WHEN :has_study_participation_code = 1 THEN \'yes\'
                          ELSE \'no\'
                      END
                  WHERE id = :participant_id'
             );
             $saveCodeStmt->execute([
                 ':study_participation_code' => $participationCodeValue !== '' ? $participationCodeValue : null,
+                ':has_study_participation_code' => $participationCodeValue !== '' ? 1 : 0,
                 ':participant_id' => $participantId,
             ]);
         } catch (Throwable $e) {
