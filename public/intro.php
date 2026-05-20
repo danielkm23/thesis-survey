@@ -41,7 +41,7 @@ try {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $participationCodeValue = trim((string) ($_POST['study_participation_code'] ?? ''));
     if (mb_strlen($participationCodeValue) > 100) {
-        $participationCodeError = 'Study participation code is too long (max 100 characters).';
+        $participationCodeError = 'Participant ID (Prolific ID) is too long (max 100 characters).';
     }
 
     if ($participationCodeError === '') {
@@ -73,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ':participant_id' => $participantId,
             ]);
         } catch (Throwable $e) {
-            $participationCodeError = 'We could not save your code right now. Please try again.';
+            $participationCodeError = 'We could not save your Participant ID (Prolific ID) right now. Please try again.';
         }
     }
 
@@ -98,7 +98,7 @@ require __DIR__ . '/../views/header.php';
 
         <h2 class="text-lg font-semibold text-slate-800 mb-2">Estimated duration</h2>
         <p class="text-slate-600 mb-6">
-            The study takes approximately 8–12 minutes.
+            The study takes approximately 5 minutes.
         </p>
 
         <h2 class="text-lg font-semibold text-slate-800 mb-2">Participation incentive</h2>
@@ -136,7 +136,7 @@ require __DIR__ . '/../views/header.php';
         </ul>
         <form id="intro-consent-form" method="post" action="intro.php">
             <div class="mb-4">
-                <label for="study_participation_code" class="block text-sm font-semibold text-slate-700 mb-1">Study participation code</label>
+                <label for="study_participation_code" class="block text-sm font-semibold text-slate-700 mb-1">Participant ID (Prolific ID)</label>
                 <input
                     type="text"
                     id="study_participation_code"
@@ -145,7 +145,7 @@ require __DIR__ . '/../views/header.php';
                     value="<?= e($participationCodeValue) ?>"
                     class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                <p class="text-xs text-slate-500 mt-1">Optional.</p>
+                <p class="text-xs text-slate-500 mt-1">Optional. Enter this if you came from Prolific.</p>
             </div>
             <?php if ($participationCodeError !== ''): ?>
                 <p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">
