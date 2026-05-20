@@ -22,7 +22,8 @@ define('TEST_MODE_ENABLED', env_or_default('TEST_MODE_ENABLED', '1') === '1');
 define('TEST_MODE_KEY', env_or_default('TEST_MODE_KEY', 'TEST-MODE'));
 define('TEST_PARTICIPANT_PREFIX', env_or_default('TEST_PARTICIPANT_PREFIX', 'TEST-'));
 
-// Randomizer tie-breaker window: count only unfinished starts within this many minutes.
-define('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES', max(1, (int) env_or_default('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES', '30')));
+// Randomizer tie-breaker window: count only unfinished starts within this many minutes
+// (default 10 to align with a survey duration of roughly 6-12 minutes).
+define('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES', max(1, (int) env_or_default('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES', '10')));
 // Randomizer started-session weight (0.0-1.0): lower means a softer margin for likely non-completion.
 define('RANDOMIZER_ACTIVE_START_WEIGHT', min(1.0, max(0.0, (float) env_or_default('RANDOMIZER_ACTIVE_START_WEIGHT', '0.6'))));

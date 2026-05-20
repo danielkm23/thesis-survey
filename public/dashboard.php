@@ -1803,6 +1803,13 @@ foreach ($analysisCohortParticipants as $participantRow) {
         'total_survey_duration_seconds' => $totalSurveyDuration,
     ];
 }
+$analysisDataForAnalysisByParticipant = [];
+foreach ($analysisDataForAnalysisRows as $analysisRow) {
+    $analysisParticipantId = (int) ($analysisRow['participant_id'] ?? 0);
+    if ($analysisParticipantId > 0) {
+        $analysisDataForAnalysisByParticipant[$analysisParticipantId] = $analysisRow;
+    }
+}
 
 $avgSurveyDurationSeconds = 0.0;
 $avgSurveyDurationCount = 0;
@@ -1980,6 +1987,10 @@ foreach ($analysisCohortParticipants as $participantRow) {
             'avg_relevant_doc_time_count' => 0,
             'avg_confidence_sum' => 0.0,
             'avg_confidence_count' => 0,
+            'avg_task_duration_sum' => 0.0,
+            'avg_task_duration_count' => 0,
+            'avg_total_survey_duration_sum' => 0.0,
+            'avg_total_survey_duration_count' => 0,
         ];
         $correctDistByCondition[$condition] = ['0' => 0, '1' => 0, '2' => 0];
         $relevantDistByCondition[$condition] = ['0' => 0, '50' => 0, '100' => 0];
@@ -2027,6 +2038,20 @@ foreach ($analysisCohortParticipants as $participantRow) {
         $conditionResults[$condition]['avg_confidence_sum'] += (float) $participantRow['avg_confidence'];
         $conditionResults[$condition]['avg_confidence_count']++;
     }
+    $participantIdForDuration = (int) ($participantRow['participant_id'] ?? 0);
+    $durationRow = $analysisDataForAnalysisByParticipant[$participantIdForDuration] ?? null;
+    if (is_array($durationRow)) {
+        foreach (['task1_duration_seconds', 'task2_duration_seconds'] as $taskDurationField) {
+            if (($durationRow[$taskDurationField] ?? null) !== null) {
+                $conditionResults[$condition]['avg_task_duration_sum'] += (float) $durationRow[$taskDurationField];
+                $conditionResults[$condition]['avg_task_duration_count']++;
+            }
+        }
+        if (($durationRow['total_survey_duration_seconds'] ?? null) !== null) {
+            $conditionResults[$condition]['avg_total_survey_duration_sum'] += (float) $durationRow['total_survey_duration_seconds'];
+            $conditionResults[$condition]['avg_total_survey_duration_count']++;
+        }
+    }
     $correctDistKey = (string) max(0, min(2, $correctCount));
     $correctDistByCondition[$condition][$correctDistKey]++;
 }
@@ -2055,6 +2080,10 @@ foreach ($analysisCohortTaskRows as $taskRow) {
             'avg_relevant_doc_time_count' => 0,
             'avg_confidence_sum' => 0.0,
             'avg_confidence_count' => 0,
+            'avg_task_duration_sum' => 0.0,
+            'avg_task_duration_count' => 0,
+            'avg_total_survey_duration_sum' => 0.0,
+            'avg_total_survey_duration_count' => 0,
         ];
     }
     $taskNumber = (int) ($taskRow['task_number'] ?? 0);
@@ -2686,6 +2715,8 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-right py-2 px-2">Avg docs opened</th>
                         <th class="text-right py-2 px-2">N no doc opened at all</th>
                         <th class="text-right py-2 px-2">Avg total doc time (s)</th>
+                        <th class="text-right py-2 px-2">Avg task duration (s)</th>
+                        <th class="text-right py-2 px-2">Avg total survey duration (s)</th>
                         <th class="text-right py-2 px-2">Avg confidence</th>
                         <th class="text-right py-2 pl-2">Relevant doc open rate (%)</th>
                     </tr>
@@ -2704,6 +2735,12 @@ require __DIR__ . '/../views/header.php';
                         $avgTotalDocTime = ($stats['avg_total_doc_time_count'] ?? 0) > 0
                             ? ($stats['avg_total_doc_time_sum'] / $stats['avg_total_doc_time_count'])
                             : 0.0;
+                        $avgTaskDuration = ($stats['avg_task_duration_count'] ?? 0) > 0
+                            ? ($stats['avg_task_duration_sum'] / $stats['avg_task_duration_count'])
+                            : 0.0;
+                        $avgTotalSurveyDuration = ($stats['avg_total_survey_duration_count'] ?? 0) > 0
+                            ? ($stats['avg_total_survey_duration_sum'] / $stats['avg_total_survey_duration_count'])
+                            : 0.0;
                         $avgConfidence = ($stats['avg_confidence_count'] ?? 0) > 0
                             ? ($stats['avg_confidence_sum'] / $stats['avg_confidence_count'])
                             : 0.0;
@@ -2718,6 +2755,8 @@ require __DIR__ . '/../views/header.php';
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgDocsOpened, 2)) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e((string) $noDocOpenedCount) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgTotalDocTime, 1)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgTaskDuration, 1)) ?></td>
+                            <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgTotalSurveyDuration, 1)) ?></td>
                             <td class="py-2 px-2 text-right text-slate-700"><?= e(number_format($avgConfidence, 2)) ?></td>
                             <td class="py-2 pl-2 text-right text-slate-700"><?= e(number_format($relevantRatePct, 1)) ?>%</td>
                         </tr>

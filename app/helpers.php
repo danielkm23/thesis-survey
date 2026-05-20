@@ -76,7 +76,7 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
     $completedByCondition = array_fill_keys($conditions, 0);
     $activeStartWindowMinutes = defined('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES')
         ? max(1, (int) RANDOMIZER_ACTIVE_START_WINDOW_MINUTES)
-        : 30;
+        : 10;
     $activeStartWeight = defined('RANDOMIZER_ACTIVE_START_WEIGHT')
         ? min(1.0, max(0.0, (float) RANDOMIZER_ACTIVE_START_WEIGHT))
         : 0.6;
