@@ -12,6 +12,62 @@ if (!has_valid_participant_session()) {
 }
 
 $participantId = (int) session_get('participant_id', 0);
+$participationCodeError = '';
+$participationCodeValue = '';
+
+try {
+    $pdo = db();
+    $participantCodeCheck = $pdo->query("SHOW COLUMNS FROM participants LIKE 'study_participation_code'");
+    $hasParticipationCodeColumn = $participantCodeCheck !== false && $participantCodeCheck->fetch() !== false;
+    if ($hasParticipationCodeColumn && $participantId > 0) {
+        $existingCodeStmt = $pdo->prepare(
+            'SELECT study_participation_code
+             FROM participants
+             WHERE id = :participant_id
+             LIMIT 1'
+        );
+        $existingCodeStmt->execute([':participant_id' => $participantId]);
+        $existingCode = $existingCodeStmt->fetchColumn();
+        if (is_string($existingCode)) {
+            $participationCodeValue = trim($existingCode);
+        }
+    }
+} catch (Throwable $e) {
+    // Keep intro usable if optional prefill fails.
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $participationCodeValue = trim((string) ($_POST['study_participation_code'] ?? ''));
+    if (mb_strlen($participationCodeValue) > 100) {
+        $participationCodeError = 'Study participation code is too long (max 100 characters).';
+    }
+
+    if ($participationCodeError === '') {
+        try {
+            $pdo = db();
+            $participantCodeCheck = $pdo->query("SHOW COLUMNS FROM participants LIKE 'study_participation_code'");
+            $hasParticipationCodeColumn = $participantCodeCheck !== false && $participantCodeCheck->fetch() !== false;
+            if (!$hasParticipationCodeColumn) {
+                $pdo->exec('ALTER TABLE participants ADD COLUMN study_participation_code VARCHAR(100) NULL');
+            }
+            $saveCodeStmt = $pdo->prepare(
+                'UPDATE participants
+                 SET study_participation_code = :study_participation_code
+                 WHERE id = :participant_id'
+            );
+            $saveCodeStmt->execute([
+                ':study_participation_code' => $participationCodeValue !== '' ? $participationCodeValue : null,
+                ':participant_id' => $participantId,
+            ]);
+        } catch (Throwable $e) {
+            $participationCodeError = 'We could not save your code right now. Please try again.';
+        }
+    }
+
+    if ($participationCodeError === '') {
+        redirect('before_begin.php');
+    }
+}
 
 $pageTitle = 'Study Introduction';
 require __DIR__ . '/../views/header.php';
@@ -65,7 +121,24 @@ require __DIR__ . '/../views/header.php';
             <li>You have read and understood the information above.</li>
             <li>You agree to participate voluntarily.</li>
         </ul>
-        <form id="intro-consent-form" method="get" action="before_begin.php">
+        <form id="intro-consent-form" method="post" action="intro.php">
+            <div class="mb-4">
+                <label for="study_participation_code" class="block text-sm font-semibold text-slate-700 mb-1">Study participation code</label>
+                <input
+                    type="text"
+                    id="study_participation_code"
+                    name="study_participation_code"
+                    maxlength="100"
+                    value="<?= e($participationCodeValue) ?>"
+                    class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                <p class="text-xs text-slate-500 mt-1">Optional.</p>
+            </div>
+            <?php if ($participationCodeError !== ''): ?>
+                <p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">
+                    <?= e($participationCodeError) ?>
+                </p>
+            <?php endif; ?>
             <label class="flex items-center gap-2 text-slate-700 mb-4">
                 <input
                     id="consent-confirmation"
