@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pdo = db();
     $startMode = (string) ($_POST['start_mode'] ?? 'live');
     $isTestSession = $startMode === 'test';
-    $conditionName = choose_balanced_condition($pdo, true);
+    $conditionName = '';
     if ($isTestSession) {
         if (!$showTestEntry) {
             http_response_code(403);
@@ -42,30 +42,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $participantId = null;
     $participantCode = '';
+    $assignmentLockName = 'thesis_survey_condition_assignment_lock';
+    $assignmentLockAcquired = false;
 
-    // Retry a few times in case of unique code collision.
-    for ($attempt = 0; $attempt < 5; $attempt++) {
-        $participantCode = generate_participant_code();
-        if ($isTestSession) {
-            $participantCode = generate_test_participant_code($pdo);
+    try {
+        if (!$isTestSession) {
+            // Serialize condition assignment to reduce tie-clustering on concurrent starts.
+            $lockStmt = $pdo->prepare('SELECT GET_LOCK(:lock_name, 5)');
+            $lockStmt->execute([':lock_name' => $assignmentLockName]);
+            $assignmentLockAcquired = ((int) $lockStmt->fetchColumn()) === 1;
+            $conditionName = choose_balanced_condition($pdo, true);
         }
 
-        try {
-            $stmt = $pdo->prepare(
-                'INSERT INTO participants (participant_code, condition_name, started_at, completed_at)
-                 VALUES (:participant_code, :condition_name, :started_at, NULL)'
-            );
-            $stmt->execute([
-                ':participant_code' => $participantCode,
-                ':condition_name' => $conditionName,
-                ':started_at' => $startedAt,
-            ]);
+        // Retry a few times in case of unique code collision.
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $participantCode = generate_participant_code();
+            if ($isTestSession) {
+                $participantCode = generate_test_participant_code($pdo);
+            }
 
-            $participantId = (int) $pdo->lastInsertId();
-            break;
-        } catch (PDOException $e) {
-            if ($e->getCode() !== '23000') {
-                throw $e;
+            try {
+                $stmt = $pdo->prepare(
+                    'INSERT INTO participants (participant_code, condition_name, started_at, completed_at)
+                     VALUES (:participant_code, :condition_name, :started_at, NULL)'
+                );
+                $stmt->execute([
+                    ':participant_code' => $participantCode,
+                    ':condition_name' => $conditionName,
+                    ':started_at' => $startedAt,
+                ]);
+
+                $participantId = (int) $pdo->lastInsertId();
+                break;
+            } catch (PDOException $e) {
+                if ($e->getCode() !== '23000') {
+                    throw $e;
+                }
+            }
+        }
+    } finally {
+        if ($assignmentLockAcquired) {
+            try {
+                $unlockStmt = $pdo->prepare('SELECT RELEASE_LOCK(:lock_name)');
+                $unlockStmt->execute([':lock_name' => $assignmentLockName]);
+            } catch (Throwable $e) {
+                // Ignore unlock failures; lock is connection-scoped and released on disconnect.
             }
         }
     }

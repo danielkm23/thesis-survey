@@ -1991,6 +1991,10 @@ foreach ($analysisCohortParticipants as $participantRow) {
             'avg_task_duration_count' => 0,
             'avg_total_survey_duration_sum' => 0.0,
             'avg_total_survey_duration_count' => 0,
+            'task1_duration_sum' => 0.0,
+            'task1_duration_count' => 0,
+            'task2_duration_sum' => 0.0,
+            'task2_duration_count' => 0,
         ];
         $correctDistByCondition[$condition] = ['0' => 0, '1' => 0, '2' => 0];
         $relevantDistByCondition[$condition] = ['0' => 0, '50' => 0, '100' => 0];
@@ -2041,11 +2045,17 @@ foreach ($analysisCohortParticipants as $participantRow) {
     $participantIdForDuration = (int) ($participantRow['participant_id'] ?? 0);
     $durationRow = $analysisDataForAnalysisByParticipant[$participantIdForDuration] ?? null;
     if (is_array($durationRow)) {
-        foreach (['task1_duration_seconds', 'task2_duration_seconds'] as $taskDurationField) {
-            if (($durationRow[$taskDurationField] ?? null) !== null) {
-                $conditionResults[$condition]['avg_task_duration_sum'] += (float) $durationRow[$taskDurationField];
-                $conditionResults[$condition]['avg_task_duration_count']++;
-            }
+        if (($durationRow['task1_duration_seconds'] ?? null) !== null) {
+            $conditionResults[$condition]['avg_task_duration_sum'] += (float) $durationRow['task1_duration_seconds'];
+            $conditionResults[$condition]['avg_task_duration_count']++;
+            $conditionResults[$condition]['task1_duration_sum'] += (float) $durationRow['task1_duration_seconds'];
+            $conditionResults[$condition]['task1_duration_count']++;
+        }
+        if (($durationRow['task2_duration_seconds'] ?? null) !== null) {
+            $conditionResults[$condition]['avg_task_duration_sum'] += (float) $durationRow['task2_duration_seconds'];
+            $conditionResults[$condition]['avg_task_duration_count']++;
+            $conditionResults[$condition]['task2_duration_sum'] += (float) $durationRow['task2_duration_seconds'];
+            $conditionResults[$condition]['task2_duration_count']++;
         }
         if (($durationRow['total_survey_duration_seconds'] ?? null) !== null) {
             $conditionResults[$condition]['avg_total_survey_duration_sum'] += (float) $durationRow['total_survey_duration_seconds'];
@@ -2084,6 +2094,10 @@ foreach ($analysisCohortTaskRows as $taskRow) {
             'avg_task_duration_count' => 0,
             'avg_total_survey_duration_sum' => 0.0,
             'avg_total_survey_duration_count' => 0,
+            'task1_duration_sum' => 0.0,
+            'task1_duration_count' => 0,
+            'task2_duration_sum' => 0.0,
+            'task2_duration_count' => 0,
         ];
     }
     $taskNumber = (int) ($taskRow['task_number'] ?? 0);
@@ -2925,7 +2939,7 @@ require __DIR__ . '/../views/header.php';
             <article class="bg-white shadow rounded-xl p-6">
                 <h3 class="text-base font-semibold text-slate-800 mb-3">Mean correct_count by condition</h3>
                 <?php $maxMeanCorrect = 1.0; foreach ($conditionResults as $stats) { $maxMeanCorrect = max($maxMeanCorrect, (float) (($stats['n_completed'] ?? 0) > 0 ? ($stats['correct_count_sum'] / $stats['n_completed']) : 0.0)); } ?>
-                <div class="space-y-3">
+                <div class="space-y-2.5">
                     <?php foreach ($conditionResults as $condition => $stats): ?>
                         <?php $val = (float) (($stats['n_completed'] ?? 0) > 0 ? ($stats['correct_count_sum'] / $stats['n_completed']) : 0.0); $w = ($val / $maxMeanCorrect) * 100.0; ?>
                         <div>
@@ -2943,6 +2957,93 @@ require __DIR__ . '/../views/header.php';
                         <div>
                             <div class="flex items-center justify-between text-sm mb-1"><span><?= e((string) $condition) ?></span><span><?= e(number_format($val, 1)) ?>%</span></div>
                             <div class="w-full h-3 bg-slate-100 rounded"><div class="h-3 accent-bg rounded" style="width: <?= e(number_format($val, 2, '.', '')) ?>%"></div></div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </article>
+        </section>
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <article class="bg-white shadow rounded-xl p-6">
+                <h3 class="text-base font-semibold text-slate-800 mb-3">Avg total survey duration by condition</h3>
+                <?php
+                $maxTotalSurveyDuration = 1.0;
+                foreach ($conditionResults as $stats) {
+                    $value = ($stats['avg_total_survey_duration_count'] ?? 0) > 0
+                        ? ($stats['avg_total_survey_duration_sum'] / $stats['avg_total_survey_duration_count'])
+                        : 0.0;
+                    $maxTotalSurveyDuration = max($maxTotalSurveyDuration, (float) $value);
+                }
+                ?>
+                <div class="space-y-3">
+                    <?php foreach ($conditionResults as $condition => $stats): ?>
+                        <?php
+                        $avgTotalSurveyDuration = ($stats['avg_total_survey_duration_count'] ?? 0) > 0
+                            ? ($stats['avg_total_survey_duration_sum'] / $stats['avg_total_survey_duration_count'])
+                            : 0.0;
+                        $barWidth = ($avgTotalSurveyDuration / $maxTotalSurveyDuration) * 100.0;
+                        ?>
+                        <div>
+                            <div class="flex items-center justify-between text-sm mb-1">
+                                <span class="font-medium text-slate-700"><?= e((string) $condition) ?></span>
+                                <span class="text-slate-700 tabular-nums"><?= e(number_format($avgTotalSurveyDuration, 1)) ?>s</span>
+                            </div>
+                            <div class="w-full h-3 bg-slate-100 rounded">
+                                <div class="h-3 accent-bg rounded" style="width: <?= e(number_format($barWidth, 2, '.', '')) ?>%"></div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </article>
+            <article class="bg-white shadow rounded-xl p-6">
+                <h3 class="text-base font-semibold text-slate-800 mb-3">Avg task duration by condition</h3>
+                <?php
+                $maxTaskDuration = 1.0;
+                foreach ($conditionResults as $stats) {
+                    $task1Val = ($stats['task1_duration_count'] ?? 0) > 0
+                        ? ($stats['task1_duration_sum'] / $stats['task1_duration_count'])
+                        : 0.0;
+                    $task2Val = ($stats['task2_duration_count'] ?? 0) > 0
+                        ? ($stats['task2_duration_sum'] / $stats['task2_duration_count'])
+                        : 0.0;
+                    $maxTaskDuration = max($maxTaskDuration, (float) $task1Val, (float) $task2Val);
+                }
+                ?>
+                <div class="space-y-3">
+                    <?php foreach ($conditionResults as $condition => $stats): ?>
+                        <?php
+                        $avgTask1Duration = ($stats['task1_duration_count'] ?? 0) > 0
+                            ? ($stats['task1_duration_sum'] / $stats['task1_duration_count'])
+                            : 0.0;
+                        $avgTask2Duration = ($stats['task2_duration_count'] ?? 0) > 0
+                            ? ($stats['task2_duration_sum'] / $stats['task2_duration_count'])
+                            : 0.0;
+                        $task1Width = ($avgTask1Duration / $maxTaskDuration) * 100.0;
+                        $task2Width = ($avgTask2Duration / $maxTaskDuration) * 100.0;
+                        ?>
+                        <div>
+                            <div class="flex items-center justify-between text-sm mb-1">
+                                <span class="font-medium text-slate-700"><?= e((string) $condition) ?></span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <div>
+                                    <div class="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
+                                        <span>T1</span>
+                                        <span class="tabular-nums"><?= e(number_format($avgTask1Duration, 1)) ?>s</span>
+                                    </div>
+                                    <div class="w-full h-1.5 bg-slate-200 rounded">
+                                        <div class="h-1.5 accent-bg rounded" style="width: <?= e(number_format($task1Width, 2, '.', '')) ?>%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
+                                        <span>T2</span>
+                                        <span class="tabular-nums"><?= e(number_format($avgTask2Duration, 1)) ?>s</span>
+                                    </div>
+                                    <div class="w-full h-1.5 bg-slate-200 rounded">
+                                        <div class="h-1.5 bg-slate-500 rounded" style="width: <?= e(number_format($task2Width, 2, '.', '')) ?>%"></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     <?php endforeach; ?>
                 </div>
