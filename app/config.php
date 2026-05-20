@@ -27,3 +27,5 @@ define('TEST_PARTICIPANT_PREFIX', env_or_default('TEST_PARTICIPANT_PREFIX', 'TES
 define('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES', max(1, (int) env_or_default('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES', '10')));
 // Randomizer started-session weight (0.0-1.0): lower means a softer margin for likely non-completion.
 define('RANDOMIZER_ACTIVE_START_WEIGHT', min(1.0, max(0.0, (float) env_or_default('RANDOMIZER_ACTIVE_START_WEIGHT', '0.6'))));
+// Slightly discount unfinished starts in active condition to keep active assignment competitive.
+define('RANDOMIZER_ACTIVE_CONDITION_WEIGHT_SCALE', min(1.0, max(0.0, (float) env_or_default('RANDOMIZER_ACTIVE_CONDITION_WEIGHT_SCALE', '0.85'))));

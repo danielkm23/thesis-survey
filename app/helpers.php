@@ -80,6 +80,9 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
     $activeStartWeight = defined('RANDOMIZER_ACTIVE_START_WEIGHT')
         ? min(1.0, max(0.0, (float) RANDOMIZER_ACTIVE_START_WEIGHT))
         : 0.6;
+    $activeConditionWeightScale = defined('RANDOMIZER_ACTIVE_CONDITION_WEIGHT_SCALE')
+        ? min(1.0, max(0.0, (float) RANDOMIZER_ACTIVE_CONDITION_WEIGHT_SCALE))
+        : 0.85;
     $recentStartedAfter = date('Y-m-d H:i:s', time() - ($activeStartWindowMinutes * 60));
 
     $sql = 'SELECT
@@ -116,7 +119,10 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
     foreach ($conditions as $condition) {
         $completedCount = (int) ($completedByCondition[$condition] ?? 0);
         $recentActiveStarts = (int) ($recentActiveStartsByCondition[$condition] ?? 0);
-        $effectiveLoadByCondition[$condition] = $completedCount + ($recentActiveStarts * $activeStartWeight);
+        $conditionStartWeight = $condition === 'active'
+            ? ($activeStartWeight * $activeConditionWeightScale)
+            : $activeStartWeight;
+        $effectiveLoadByCondition[$condition] = $completedCount + ($recentActiveStarts * $conditionStartWeight);
     }
 
     $minEffectiveLoad = min($effectiveLoadByCondition);
