@@ -12,6 +12,7 @@ if (!has_valid_participant_session()) {
 }
 
 $participantId = (int) session_get('participant_id', 0);
+$participantCode = (string) session_get('participant_code', '');
 $raffleStatus = (string) session_get('raffle_entry_status', '');
 $raffleError = '';
 
@@ -69,6 +70,12 @@ require __DIR__ . '/../views/header.php';
     <section class="bg-white shadow rounded-xl p-8">
         <h1 class="text-2xl font-bold text-slate-800 mb-3">Thank you for completing the study.</h1>
         <p class="text-slate-600 mb-2">Your task responses and post-survey answers were recorded successfully.</p>
+        <p class="text-slate-600">
+            Participant ID: <span class="font-semibold text-slate-800"><?= e((string) $participantId) ?></span>
+        </p>
+        <p class="text-slate-600">
+            Participant code: <span class="font-semibold text-slate-800"><?= e($participantCode) ?></span>
+        </p>
     </section>
 
     <section class="bg-white shadow rounded-xl p-8 mt-4">
