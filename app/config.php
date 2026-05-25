@@ -29,3 +29,5 @@ define('RANDOMIZER_ACTIVE_START_WINDOW_MINUTES', max(1, (int) env_or_default('RA
 define('RANDOMIZER_ACTIVE_START_WEIGHT', min(1.0, max(0.0, (float) env_or_default('RANDOMIZER_ACTIVE_START_WEIGHT', '0.6'))));
 // Slightly discount unfinished starts in active condition to keep active assignment competitive.
 define('RANDOMIZER_ACTIVE_CONDITION_WEIGHT_SCALE', min(1.0, max(0.0, (float) env_or_default('RANDOMIZER_ACTIVE_CONDITION_WEIGHT_SCALE', '0.85'))));
+// Allow active to lead completed assignments by this many without extra penalty.
+define('RANDOMIZER_ACTIVE_COMPLETION_LEAD', max(0, (int) env_or_default('RANDOMIZER_ACTIVE_COMPLETION_LEAD', '1')));

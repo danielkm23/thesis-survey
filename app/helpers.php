@@ -83,6 +83,9 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
     $activeConditionWeightScale = defined('RANDOMIZER_ACTIVE_CONDITION_WEIGHT_SCALE')
         ? min(1.0, max(0.0, (float) RANDOMIZER_ACTIVE_CONDITION_WEIGHT_SCALE))
         : 0.85;
+    $activeCompletionLead = defined('RANDOMIZER_ACTIVE_COMPLETION_LEAD')
+        ? max(0, (int) RANDOMIZER_ACTIVE_COMPLETION_LEAD)
+        : 1;
     $recentStartedAfter = date('Y-m-d H:i:s', time() - ($activeStartWindowMinutes * 60));
 
     $sql = 'SELECT
@@ -118,11 +121,14 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
     $effectiveLoadByCondition = [];
     foreach ($conditions as $condition) {
         $completedCount = (int) ($completedByCondition[$condition] ?? 0);
+        $adjustedCompletedCount = $condition === 'active'
+            ? max(0, $completedCount - $activeCompletionLead)
+            : $completedCount;
         $recentActiveStarts = (int) ($recentActiveStartsByCondition[$condition] ?? 0);
         $conditionStartWeight = $condition === 'active'
             ? ($activeStartWeight * $activeConditionWeightScale)
             : $activeStartWeight;
-        $effectiveLoadByCondition[$condition] = $completedCount + ($recentActiveStarts * $conditionStartWeight);
+        $effectiveLoadByCondition[$condition] = $adjustedCompletedCount + ($recentActiveStarts * $conditionStartWeight);
     }
 
     $minEffectiveLoad = min($effectiveLoadByCondition);
@@ -137,7 +143,10 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
 
     $candidateCompleted = [];
     foreach ($leastLoaded as $condition) {
-        $candidateCompleted[$condition] = $completedByCondition[$condition] ?? PHP_INT_MAX;
+        $rawCompleted = (int) ($completedByCondition[$condition] ?? PHP_INT_MAX);
+        $candidateCompleted[$condition] = $condition === 'active'
+            ? max(0, $rawCompleted - $activeCompletionLead)
+            : $rawCompleted;
     }
 
     $minCompleted = min($candidateCompleted);
