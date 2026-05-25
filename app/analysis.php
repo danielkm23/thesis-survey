@@ -181,6 +181,70 @@ function analysis_participant_filter_clause(string $alias, bool $includeTestPart
     return ' WHERE ' . $alias . '.participant_code NOT LIKE ' . analysis_sql_quote($prefix . '%');
 }
 
+/**
+ * Returns participant IDs flagged as low quality for randomization exclusion.
+ *
+ * Matches dashboard rules: serious_effort <= 2 or short_time_flag on both tasks.
+ */
+function analysis_low_quality_participant_ids(PDO $pdo, bool $excludeTestParticipants = true): array
+{
+    $hasShortTimeFlag = analysis_column_exists($pdo, 'task_responses', 'short_time_flag');
+    $hasSeriousEffort = analysis_column_exists($pdo, 'postsurvey_responses', 'serious_effort');
+    if (!$hasShortTimeFlag && !$hasSeriousEffort) {
+        return [];
+    }
+
+    $testFilter = '';
+    if ($excludeTestParticipants) {
+        $prefix = analysis_test_participant_prefix();
+        $testFilter = ' AND p.participant_code NOT LIKE ' . analysis_sql_quote($prefix . '%');
+    }
+
+    $unionParts = [];
+    if ($hasSeriousEffort) {
+        $unionParts[] = 'SELECT ps.participant_id
+            FROM postsurvey_responses ps
+            INNER JOIN (
+                SELECT participant_id, MAX(id) AS latest_id
+                FROM postsurvey_responses
+                GROUP BY participant_id
+            ) latest ON latest.latest_id = ps.id
+            INNER JOIN participants p ON p.id = ps.participant_id
+            WHERE ps.serious_effort <= 2' . $testFilter;
+    }
+    if ($hasShortTimeFlag) {
+        $unionParts[] = 'SELECT tr.participant_id
+            FROM task_responses tr
+            INNER JOIN participants p ON p.id = tr.participant_id
+            WHERE 1=1' . $testFilter . '
+            GROUP BY tr.participant_id
+            HAVING COUNT(DISTINCT tr.task_number) >= 2
+               AND SUM(CASE WHEN tr.short_time_flag = 1 THEN 1 ELSE 0 END) >= 2';
+    }
+
+    if ($unionParts === []) {
+        return [];
+    }
+
+    $stmt = $pdo->query(
+        'SELECT DISTINCT participant_id
+         FROM (' . implode(' UNION ', $unionParts) . ') AS low_quality_participants'
+    );
+    if ($stmt === false) {
+        return [];
+    }
+
+    $participantIds = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $participantId = (int) ($row['participant_id'] ?? 0);
+        if ($participantId > 0) {
+            $participantIds[] = $participantId;
+        }
+    }
+
+    return $participantIds;
+}
+
 function analysis_relevant_document_by_task(): array
 {
     $map = [];

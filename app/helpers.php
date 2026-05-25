@@ -63,6 +63,7 @@ function generate_test_participant_code(PDO $pdo): string
 /**
  * Chooses a condition with balancing toward equal completed counts.
  *
+ * Excludes test participants and low-quality responses from load counts.
  * Primary criterion: fewest effective assignments per condition
  * (completed + weighted unfinished recent starts).
  * Tie-breaker: fewest fully completed participants per condition.
@@ -71,6 +72,10 @@ function generate_test_participant_code(PDO $pdo): string
  */
 function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = true): string
 {
+    if (!function_exists('analysis_low_quality_participant_ids')) {
+        require_once __DIR__ . '/analysis.php';
+    }
+
     $conditions = ['control', 'passive', 'active'];
     $recentActiveStartsByCondition = array_fill_keys($conditions, 0);
     $completedByCondition = array_fill_keys($conditions, 0);
@@ -87,6 +92,7 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
         ? max(0, (int) RANDOMIZER_ACTIVE_COMPLETION_LEAD)
         : 1;
     $recentStartedAfter = date('Y-m-d H:i:s', time() - ($activeStartWindowMinutes * 60));
+    $lowQualityParticipantIds = analysis_low_quality_participant_ids($pdo, $excludeTestParticipants);
 
     $sql = 'SELECT
                 condition_name,
@@ -99,6 +105,15 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
         $sql .= ' AND participant_code NOT LIKE :test_prefix';
     }
 
+    $lowQualityPlaceholders = [];
+    foreach (array_values($lowQualityParticipantIds) as $index => $participantId) {
+        $placeholder = ':low_quality_participant_id_' . $index;
+        $lowQualityPlaceholders[] = $placeholder;
+    }
+    if ($lowQualityPlaceholders !== []) {
+        $sql .= ' AND id NOT IN (' . implode(', ', $lowQualityPlaceholders) . ')';
+    }
+
     $sql .= ' GROUP BY condition_name';
 
     $stmt = $pdo->prepare($sql);
@@ -106,6 +121,9 @@ function choose_balanced_condition(PDO $pdo, bool $excludeTestParticipants = tru
     if ($excludeTestParticipants) {
         $testPrefix = defined('TEST_PARTICIPANT_PREFIX') ? (string) TEST_PARTICIPANT_PREFIX : 'TEST-';
         $stmt->bindValue(':test_prefix', $testPrefix . '%', PDO::PARAM_STR);
+    }
+    foreach (array_values($lowQualityParticipantIds) as $index => $participantId) {
+        $stmt->bindValue(':low_quality_participant_id_' . $index, $participantId, PDO::PARAM_INT);
     }
     $stmt->execute();
 
