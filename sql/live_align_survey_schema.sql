@@ -76,11 +76,11 @@ SET @sql = IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- 3bc) Backfill prolific=yes for known Prolific ID ranges and rows with study code.
+-- 3bc) Backfill prolific=yes for known Prolific ID ranges and rows with long enough study code.
 UPDATE participants
 SET prolific = CASE
     WHEN (id BETWEEN 103 AND 139) OR (id BETWEEN 164 AND 182) THEN 'yes'
-    WHEN study_participation_code IS NOT NULL AND TRIM(study_participation_code) <> '' THEN 'yes'
+    WHEN study_participation_code IS NOT NULL AND CHAR_LENGTH(TRIM(study_participation_code)) >= 20 THEN 'yes'
     ELSE 'no'
 END;
 

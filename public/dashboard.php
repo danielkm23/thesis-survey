@@ -695,7 +695,7 @@ if ($currentTab === 'data') {
     if ($needsComputedProlificColumn) {
         $rowsSql = 'SELECT p.*, CASE
                 WHEN (p.id BETWEEN 103 AND 139) OR (p.id BETWEEN 164 AND 182) THEN \'yes\'
-                WHEN p.study_participation_code IS NOT NULL AND TRIM(p.study_participation_code) <> \'\' THEN \'yes\'
+                WHEN p.study_participation_code IS NOT NULL AND CHAR_LENGTH(TRIM(p.study_participation_code)) >= 20 THEN \'yes\'
                 ELSE \'no\'
             END AS prolific
             FROM participants p';
@@ -790,7 +790,7 @@ if ($currentTab === 'full_raw_data') {
         ? 'p.prolific'
         : "CASE
             WHEN (p.id BETWEEN 103 AND 139) OR (p.id BETWEEN 164 AND 182) THEN 'yes'
-            WHEN p.study_participation_code IS NOT NULL AND TRIM(p.study_participation_code) <> '' THEN 'yes'
+            WHEN p.study_participation_code IS NOT NULL AND CHAR_LENGTH(TRIM(p.study_participation_code)) >= 20 THEN 'yes'
             ELSE 'no'
           END";
     $fullRawSelectParts = [
@@ -1058,7 +1058,7 @@ if ($currentTab === 'participant' && $participantDetailId !== false && $particip
     $participantDetail = $participantStmt->fetch() ?: null;
     if ($participantDetail !== null && !array_key_exists('prolific', $participantDetail)) {
         $participantIdForProlific = (int) ($participantDetail['id'] ?? 0);
-        $hasStudyCode = trim((string) ($participantDetail['study_participation_code'] ?? '')) !== '';
+        $hasStudyCode = mb_strlen(trim((string) ($participantDetail['study_participation_code'] ?? ''))) >= 20;
         $participantDetail['prolific'] = (
             ($participantIdForProlific >= 103 && $participantIdForProlific <= 139)
             || ($participantIdForProlific >= 164 && $participantIdForProlific <= 182)
