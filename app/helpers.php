@@ -218,6 +218,49 @@ function has_valid_participant_session(): bool
 }
 
 /**
+ * Restores the participant session from a validated participant id/code pair.
+ */
+function restore_participant_session(PDO $pdo, int $participantId, string $participantCode): bool
+{
+    $participantCode = trim($participantCode);
+    if ($participantId <= 0 || $participantCode === '') {
+        return false;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id, participant_code, condition_name
+         FROM participants
+         WHERE id = :participant_id
+           AND participant_code = :participant_code
+         LIMIT 1'
+    );
+    $stmt->execute([
+        ':participant_id' => $participantId,
+        ':participant_code' => $participantCode,
+    ]);
+    $participant = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($participant)) {
+        return false;
+    }
+
+    $resolvedParticipantId = (int) ($participant['id'] ?? 0);
+    $resolvedParticipantCode = (string) ($participant['participant_code'] ?? '');
+    $resolvedConditionName = (string) ($participant['condition_name'] ?? '');
+    if ($resolvedParticipantId <= 0 || $resolvedParticipantCode === '' || $resolvedConditionName === '') {
+        return false;
+    }
+
+    session_set('participant_id', $resolvedParticipantId);
+    session_set('participant_code', $resolvedParticipantCode);
+    session_set('condition_name', $resolvedConditionName);
+
+    $testPrefix = defined('TEST_PARTICIPANT_PREFIX') ? (string) TEST_PARTICIPANT_PREFIX : 'TEST-';
+    session_set('is_test_participant', str_starts_with($resolvedParticipantCode, $testPrefix));
+
+    return true;
+}
+
+/**
  * Clears participant/task session state while keeping unrelated session data.
  */
 function clear_participant_session_state(): void

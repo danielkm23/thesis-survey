@@ -115,6 +115,155 @@ function int_in_range_or_null(mixed $value, int $min, int $max): ?int
     return (int) $validated;
 }
 
+/**
+ * Builds participant-level rows for the Data for analysis dashboard/export.
+ */
+function build_analysis_data_for_analysis_rows(
+    array $participantRows,
+    array $taskRowsByParticipant,
+    array $postsurveyByParticipant
+): array {
+    $rows = [];
+    foreach ($participantRows as $participantRow) {
+        $participantId = (int) ($participantRow['participant_id'] ?? 0);
+        if ($participantId <= 0) {
+            continue;
+        }
+
+        $task1 = $taskRowsByParticipant[$participantId][1] ?? null;
+        $task2 = $taskRowsByParticipant[$participantId][2] ?? null;
+        $postRow = $postsurveyByParticipant[$participantId] ?? null;
+
+        $aiLiteracyPoints = null;
+        if (is_array($postRow)) {
+            $aiLitValues = [
+                int_in_range_or_null($postRow['ai_lit_1'] ?? null, 1, 5),
+                int_in_range_or_null($postRow['ai_lit_2'] ?? null, 1, 5),
+                int_in_range_or_null($postRow['ai_lit_3'] ?? null, 1, 5),
+                int_in_range_or_null($postRow['ai_lit_4'] ?? null, 1, 5),
+            ];
+            $hasAllAiLit = !in_array(null, $aiLitValues, true);
+            if ($hasAllAiLit) {
+                $aiLiteracyPoints = (float) array_sum($aiLitValues);
+            }
+        }
+
+        $crtCorrectCount = null;
+        if (is_array($postRow)) {
+            $crt1 = isset($postRow['crt_1']) ? (float) $postRow['crt_1'] : null;
+            $crt2 = isset($postRow['crt_2']) ? (float) $postRow['crt_2'] : null;
+            $crt3 = isset($postRow['crt_3']) ? (float) $postRow['crt_3'] : null;
+            if ($crt1 !== null && $crt2 !== null && $crt3 !== null) {
+                $crtCorrectCount = 0.0;
+                if (is_close_enough($crt1, 0.05)) {
+                    $crtCorrectCount += 1.0;
+                }
+                if (is_close_enough($crt2, 5.0)) {
+                    $crtCorrectCount += 1.0;
+                }
+                if (is_close_enough($crt3, 47.0)) {
+                    $crtCorrectCount += 1.0;
+                }
+            }
+        }
+
+        $task1Duration = is_array($task1) && ($task1['duration_seconds'] ?? null) !== null
+            ? (float) $task1['duration_seconds']
+            : null;
+        $task2Duration = is_array($task2) && ($task2['duration_seconds'] ?? null) !== null
+            ? (float) $task2['duration_seconds']
+            : null;
+        $postsurveyDuration = is_array($postRow) && ($postRow['duration_seconds'] ?? null) !== null
+            ? (float) $postRow['duration_seconds']
+            : null;
+
+        $totalSurveyDuration = null;
+        $startedAtRaw = (string) ($participantRow['started_at'] ?? '');
+        $postsurveySubmittedAtRaw = is_array($postRow) ? (string) ($postRow['submitted_at'] ?? '') : '';
+        $startedTs = $startedAtRaw !== '' ? strtotime($startedAtRaw) : false;
+        $submittedTs = $postsurveySubmittedAtRaw !== '' ? strtotime($postsurveySubmittedAtRaw) : false;
+        if ($startedTs !== false && $submittedTs !== false && $submittedTs >= $startedTs) {
+            $totalSurveyDuration = (float) ($submittedTs - $startedTs);
+        } elseif ($task1Duration !== null || $task2Duration !== null || $postsurveyDuration !== null) {
+            $totalSurveyDuration = (float) (($task1Duration ?? 0.0) + ($task2Duration ?? 0.0) + ($postsurveyDuration ?? 0.0));
+        }
+
+        $calibrationErrorSum = 0.0;
+        $calibrationErrorCount = 0;
+        $totalDocTimeSecSum = 0.0;
+        $hasAnyTotalDocTime = false;
+        foreach ([$task1, $task2] as $taskRowForAggregate) {
+            if (!is_array($taskRowForAggregate)) {
+                continue;
+            }
+            if (($taskRowForAggregate['confidence'] ?? null) !== null && ($taskRowForAggregate['final_decision_correct'] ?? null) !== null) {
+                $normalizedConfidence = ((float) $taskRowForAggregate['confidence']) / 5.0;
+                $correctness = (float) $taskRowForAggregate['final_decision_correct'];
+                $calibrationErrorSum += abs($normalizedConfidence - $correctness);
+                $calibrationErrorCount++;
+            }
+            if (($taskRowForAggregate['total_document_view_time_sec'] ?? null) !== null) {
+                $totalDocTimeSecSum += (float) $taskRowForAggregate['total_document_view_time_sec'];
+                $hasAnyTotalDocTime = true;
+            }
+        }
+        $calibrationScore = $calibrationErrorCount > 0
+            ? round(1.0 - ($calibrationErrorSum / $calibrationErrorCount), 4)
+            : null;
+        $avgConfidence = $participantRow['avg_confidence'] ?? null;
+        $avgDocsOpened = $participantRow['avg_docs_opened'] ?? null;
+        $totalDocTimeSec = $hasAnyTotalDocTime ? round($totalDocTimeSecSum, 3) : null;
+
+        $rows[] = [
+            'participant_id' => $participantId,
+            'participant_code' => (string) ($participantRow['participant_code'] ?? ''),
+            'condition_name' => (string) ($participantRow['condition_name'] ?? ''),
+            'prolific' => (string) ($participantRow['prolific'] ?? 'no'),
+            'task1_reliance_choice' => is_array($task1) ? (string) ($task1['reliance_choice'] ?? '') : '',
+            'task1_decision_correct' => is_array($task1) ? ($task1['final_decision_correct'] ?? null) : null,
+            'task1_confidence' => is_array($task1) ? ($task1['confidence'] ?? null) : null,
+            'task1_relevant_doc_opened' => is_array($task1) ? ($task1['relevant_document_opened'] ?? null) : null,
+            'task1_number_docs_opened' => is_array($task1) ? ($task1['number_documents_opened'] ?? null) : null,
+            'task1_docs_opened_any' => is_array($task1)
+                ? ((((int) ($task1['number_documents_opened'] ?? 0)) > 0) ? 1 : 0)
+                : null,
+            'task1_total_doc_view_time_sec' => is_array($task1)
+                ? (($task1['total_document_view_time_sec'] ?? null) !== null ? (float) $task1['total_document_view_time_sec'] : null)
+                : null,
+            'task2_reliance_choice' => is_array($task2) ? (string) ($task2['reliance_choice'] ?? '') : '',
+            'task2_decision_correct' => is_array($task2) ? ($task2['final_decision_correct'] ?? null) : null,
+            'task2_confidence' => is_array($task2) ? ($task2['confidence'] ?? null) : null,
+            'task2_relevant_doc_opened' => is_array($task2) ? ($task2['relevant_document_opened'] ?? null) : null,
+            'task2_number_docs_opened' => is_array($task2) ? ($task2['number_documents_opened'] ?? null) : null,
+            'task2_docs_opened_any' => is_array($task2)
+                ? ((((int) ($task2['number_documents_opened'] ?? 0)) > 0) ? 1 : 0)
+                : null,
+            'task2_total_doc_view_time_sec' => is_array($task2)
+                ? (($task2['total_document_view_time_sec'] ?? null) !== null ? (float) $task2['total_document_view_time_sec'] : null)
+                : null,
+            'calibration_score' => $calibrationScore,
+            'avg_confidence' => $avgConfidence,
+            'avg_docs_opened' => $avgDocsOpened,
+            'total_doc_time_sec' => $totalDocTimeSec,
+            'ai_literacy' => $aiLiteracyPoints === null ? null : number_format($aiLiteracyPoints, 2),
+            'crt_score' => $crtCorrectCount === null ? null : number_format($crtCorrectCount, 2),
+            'task_clarity' => $participantRow['instructions_clarity'] ?? null,
+            'notice_cue' => $participantRow['instruction_notice'] ?? null,
+            'task_realism' => $participantRow['task_realism'] ?? null,
+            'ai_experience' => $participantRow['ai_experience'] ?? null,
+            'age' => $participantRow['age'] ?? null,
+            'gender' => $participantRow['gender'] ?? null,
+            'education' => $participantRow['education'] ?? null,
+            'task1_duration_seconds' => $task1Duration,
+            'task2_duration_seconds' => $task2Duration,
+            'postsurvey_duration_seconds' => $postsurveyDuration,
+            'total_survey_duration_seconds' => $totalSurveyDuration,
+        ];
+    }
+
+    return $rows;
+}
+
 function extract_reflection_value(string $reflection, string $key): ?string
 {
     $needle = $key . '=';
@@ -426,7 +575,9 @@ if (!in_array($currentTab, [
     'inspection',
     'participants_analysis',
     'task_level_analysis',
+    'task_level_analysis_all',
     'data_for_analysis',
+    'data_for_analysis_all',
     'data',
     'participant',
     'trash',
@@ -1674,135 +1825,31 @@ foreach ($analysisCohortTaskRows as $taskRow) {
 }
 
 $analysisPostsurveyByParticipant = [];
-if (!empty($analysisCohortParticipantIds)) {
-    $participantIdsForCohort = array_keys($analysisCohortParticipantIds);
-    $inPlaceholders = implode(', ', array_fill(0, count($participantIdsForCohort), '?'));
-    $analysisPostsurveyStmt = $pdo->prepare(
-        'SELECT ps.*
-         FROM postsurvey_responses ps
-         INNER JOIN (
-             SELECT participant_id, MAX(id) AS max_id
-             FROM postsurvey_responses
-             WHERE participant_id IN (' . $inPlaceholders . ')
-             GROUP BY participant_id
-         ) latest_ps ON latest_ps.max_id = ps.id'
-    );
-    foreach ($participantIdsForCohort as $idx => $participantIdValue) {
-        $analysisPostsurveyStmt->bindValue($idx + 1, (int) $participantIdValue, PDO::PARAM_INT);
-    }
-    $analysisPostsurveyStmt->execute();
+$analysisPostsurveyStmt = $pdo->query(
+    'SELECT ps.*
+     FROM postsurvey_responses ps
+     INNER JOIN (
+         SELECT participant_id, MAX(id) AS max_id
+         FROM postsurvey_responses
+         GROUP BY participant_id
+     ) latest_ps ON latest_ps.max_id = ps.id'
+);
+if ($analysisPostsurveyStmt !== false) {
     foreach ($analysisPostsurveyStmt->fetchAll() as $postRow) {
         $analysisPostsurveyByParticipant[(int) ($postRow['participant_id'] ?? 0)] = $postRow;
     }
 }
 
-$analysisDataForAnalysisRows = [];
-foreach ($analysisCohortParticipants as $participantRow) {
-    $participantId = (int) ($participantRow['participant_id'] ?? 0);
-    if ($participantId <= 0) {
-        continue;
-    }
-
-    $task1 = $analysisTaskRowsByParticipant[$participantId][1] ?? null;
-    $task2 = $analysisTaskRowsByParticipant[$participantId][2] ?? null;
-    $postRow = $analysisPostsurveyByParticipant[$participantId] ?? null;
-
-    $aiLiteracyPoints = null;
-    if (is_array($postRow)) {
-        $aiLitValues = [
-            int_in_range_or_null($postRow['ai_lit_1'] ?? null, 1, 5),
-            int_in_range_or_null($postRow['ai_lit_2'] ?? null, 1, 5),
-            int_in_range_or_null($postRow['ai_lit_3'] ?? null, 1, 5),
-            int_in_range_or_null($postRow['ai_lit_4'] ?? null, 1, 5),
-        ];
-        $hasAllAiLit = !in_array(null, $aiLitValues, true);
-        if ($hasAllAiLit) {
-            $aiLiteracyPoints = (float) array_sum($aiLitValues);
-        }
-    }
-
-    $crtCorrectCount = null;
-    if (is_array($postRow)) {
-        $crt1 = isset($postRow['crt_1']) ? (float) $postRow['crt_1'] : null;
-        $crt2 = isset($postRow['crt_2']) ? (float) $postRow['crt_2'] : null;
-        $crt3 = isset($postRow['crt_3']) ? (float) $postRow['crt_3'] : null;
-        if ($crt1 !== null && $crt2 !== null && $crt3 !== null) {
-            $crtCorrectCount = 0.0;
-            if (is_close_enough($crt1, 0.05)) {
-                $crtCorrectCount += 1.0;
-            }
-            if (is_close_enough($crt2, 5.0)) {
-                $crtCorrectCount += 1.0;
-            }
-            if (is_close_enough($crt3, 47.0)) {
-                $crtCorrectCount += 1.0;
-            }
-        }
-    }
-
-    $task1Duration = is_array($task1) && ($task1['duration_seconds'] ?? null) !== null
-        ? (float) $task1['duration_seconds']
-        : null;
-    $task2Duration = is_array($task2) && ($task2['duration_seconds'] ?? null) !== null
-        ? (float) $task2['duration_seconds']
-        : null;
-    $postsurveyDuration = is_array($postRow) && ($postRow['duration_seconds'] ?? null) !== null
-        ? (float) $postRow['duration_seconds']
-        : null;
-
-    $totalSurveyDuration = null;
-    $startedAtRaw = (string) ($participantRow['started_at'] ?? '');
-    $postsurveySubmittedAtRaw = is_array($postRow) ? (string) ($postRow['submitted_at'] ?? '') : '';
-    $startedTs = $startedAtRaw !== '' ? strtotime($startedAtRaw) : false;
-    $submittedTs = $postsurveySubmittedAtRaw !== '' ? strtotime($postsurveySubmittedAtRaw) : false;
-    if ($startedTs !== false && $submittedTs !== false && $submittedTs >= $startedTs) {
-        $totalSurveyDuration = (float) ($submittedTs - $startedTs);
-    } elseif ($task1Duration !== null || $task2Duration !== null || $postsurveyDuration !== null) {
-        $totalSurveyDuration = (float) (($task1Duration ?? 0.0) + ($task2Duration ?? 0.0) + ($postsurveyDuration ?? 0.0));
-    }
-
-    $analysisDataForAnalysisRows[] = [
-        'participant_id' => $participantId,
-        'participant_code' => (string) ($participantRow['participant_code'] ?? ''),
-        'condition_name' => (string) ($participantRow['condition_name'] ?? ''),
-        'prolific' => (string) ($participantRow['prolific'] ?? 'no'),
-        'task1_reliance_choice' => is_array($task1) ? (string) ($task1['reliance_choice'] ?? '') : '',
-        'task1_decision_correct' => is_array($task1) ? ($task1['final_decision_correct'] ?? null) : null,
-        'task1_confidence' => is_array($task1) ? ($task1['confidence'] ?? null) : null,
-        'task1_relevant_doc_opened' => is_array($task1) ? ($task1['relevant_document_opened'] ?? null) : null,
-        'task1_number_docs_opened' => is_array($task1) ? ($task1['number_documents_opened'] ?? null) : null,
-        'task1_docs_opened_any' => is_array($task1)
-            ? ((((int) ($task1['number_documents_opened'] ?? 0)) > 0) ? 1 : 0)
-            : null,
-        'task1_total_doc_view_time_sec' => is_array($task1)
-            ? (($task1['total_document_view_time_sec'] ?? null) !== null ? (float) $task1['total_document_view_time_sec'] : null)
-            : null,
-        'task2_reliance_choice' => is_array($task2) ? (string) ($task2['reliance_choice'] ?? '') : '',
-        'task2_decision_correct' => is_array($task2) ? ($task2['final_decision_correct'] ?? null) : null,
-        'task2_confidence' => is_array($task2) ? ($task2['confidence'] ?? null) : null,
-        'task2_relevant_doc_opened' => is_array($task2) ? ($task2['relevant_document_opened'] ?? null) : null,
-        'task2_number_docs_opened' => is_array($task2) ? ($task2['number_documents_opened'] ?? null) : null,
-        'task2_docs_opened_any' => is_array($task2)
-            ? ((((int) ($task2['number_documents_opened'] ?? 0)) > 0) ? 1 : 0)
-            : null,
-        'task2_total_doc_view_time_sec' => is_array($task2)
-            ? (($task2['total_document_view_time_sec'] ?? null) !== null ? (float) $task2['total_document_view_time_sec'] : null)
-            : null,
-        'ai_literacy' => $aiLiteracyPoints === null ? null : number_format($aiLiteracyPoints, 2),
-        'crt_score' => $crtCorrectCount === null ? null : number_format($crtCorrectCount, 2),
-        'task_clarity' => $participantRow['instructions_clarity'] ?? null,
-        'notice_cue' => $participantRow['instruction_notice'] ?? null,
-        'task_realism' => $participantRow['task_realism'] ?? null,
-        'ai_experience' => $participantRow['ai_experience'] ?? null,
-        'age' => $participantRow['age'] ?? null,
-        'gender' => $participantRow['gender'] ?? null,
-        'education' => $participantRow['education'] ?? null,
-        'task1_duration_seconds' => $task1Duration,
-        'task2_duration_seconds' => $task2Duration,
-        'postsurvey_duration_seconds' => $postsurveyDuration,
-        'total_survey_duration_seconds' => $totalSurveyDuration,
-    ];
-}
+$analysisDataForAnalysisRows = build_analysis_data_for_analysis_rows(
+    $analysisCohortParticipants,
+    $analysisTaskRowsByParticipant,
+    $analysisPostsurveyByParticipant
+);
+$analysisDataForAnalysisAllRows = build_analysis_data_for_analysis_rows(
+    $analysisParticipantRows,
+    $analysisTaskRowsByParticipant,
+    $analysisPostsurveyByParticipant
+);
 $analysisDataForAnalysisByParticipant = [];
 foreach ($analysisDataForAnalysisRows as $analysisRow) {
     $analysisParticipantId = (int) ($analysisRow['participant_id'] ?? 0);
@@ -1842,6 +1889,10 @@ $analysisDataForAnalysisColumns = [
     'task2_number_docs_opened',
     'task2_docs_opened_any',
     'task2_total_doc_view_time_sec',
+    'calibration_score',
+    'avg_confidence',
+    'avg_docs_opened',
+    'total_doc_time_sec',
     'ai_literacy',
     'crt_score',
     'task_clarity',
@@ -1855,6 +1906,32 @@ $analysisDataForAnalysisColumns = [
     'task2_duration_seconds',
     'postsurvey_duration_seconds',
     'total_survey_duration_seconds',
+];
+
+$analysisTaskLevelExportColumns = [
+    'participant_id',
+    'participant_code',
+    'condition_name',
+    'prolific',
+    'task_number',
+    'ai_correct',
+    'selected_option_key',
+    'final_decision_correct',
+    'inspection_any',
+    'relevant_document_opened',
+    'number_documents_opened',
+    'total_document_view_time_sec',
+    'relevant_document_view_time_sec',
+    'confidence',
+    'manual_code_required',
+    'manual_response_correctness',
+    'ai_literacy_score',
+    'crt_score',
+    'ai_experience',
+    'age',
+    'gender',
+    'education',
+    'low_quality_response',
 ];
 
 $participantsPerCondition = [];
@@ -2214,8 +2291,11 @@ usort($calibrationRows, static function (array $a, array $b): int {
     return ((int) ($a['ai_correct'] ?? 0)) <=> ((int) ($b['ai_correct'] ?? 0));
 });
 
-if ($currentTab === 'data_for_analysis' && ((string) ($_GET['download'] ?? '0')) === '1') {
-    $filename = 'data_for_analysis_' . date('Ymd_His') . '.csv';
+if (in_array($currentTab, ['data_for_analysis', 'data_for_analysis_all'], true) && ((string) ($_GET['download'] ?? '0')) === '1') {
+    $downloadRows = $currentTab === 'data_for_analysis_all'
+        ? $analysisDataForAnalysisAllRows
+        : $analysisDataForAnalysisRows;
+    $filename = $currentTab . '_' . date('Ymd_His') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Pragma: no-cache');
@@ -2228,7 +2308,7 @@ if ($currentTab === 'data_for_analysis' && ((string) ($_GET['download'] ?? '0'))
     }
 
     fputcsv($output, $analysisDataForAnalysisColumns, ',', '"', '\\');
-    foreach ($analysisDataForAnalysisRows as $row) {
+    foreach ($downloadRows as $row) {
         $csvRow = [];
         foreach ($analysisDataForAnalysisColumns as $column) {
             $value = $row[$column] ?? '';
@@ -2240,10 +2320,57 @@ if ($currentTab === 'data_for_analysis' && ((string) ($_GET['download'] ?? '0'))
                 in_array($column, [
                     'task1_total_doc_view_time_sec',
                     'task2_total_doc_view_time_sec',
+                    'calibration_score',
+                    'avg_confidence',
+                    'avg_docs_opened',
+                    'total_doc_time_sec',
                     'task1_duration_seconds',
                     'task2_duration_seconds',
                     'postsurvey_duration_seconds',
                     'total_survey_duration_seconds',
+                ], true)
+            ) {
+                $csvRow[] = number_format((float) $value, 2, '.', '');
+            } else {
+                $csvRow[] = (string) $value;
+            }
+        }
+        fputcsv($output, $csvRow, ',', '"', '\\');
+    }
+    fclose($output);
+    exit;
+}
+
+if (in_array($currentTab, ['task_level_analysis', 'task_level_analysis_all'], true) && ((string) ($_GET['download'] ?? '0')) === '1') {
+    $downloadRows = $currentTab === 'task_level_analysis_all'
+        ? $analysisTaskLevelRows
+        : $analysisCohortTaskRows;
+    $filename = $currentTab . '_' . date('Ymd_His') . '.csv';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    $output = fopen('php://output', 'w');
+    if ($output === false) {
+        http_response_code(500);
+        exit('Could not open CSV output stream.');
+    }
+
+    fputcsv($output, $analysisTaskLevelExportColumns, ',', '"', '\\');
+    foreach ($downloadRows as $row) {
+        $csvRow = [];
+        foreach ($analysisTaskLevelExportColumns as $column) {
+            $value = $row[$column] ?? '';
+            if ($value === null) {
+                $csvRow[] = '';
+                continue;
+            }
+            if (
+                in_array($column, [
+                    'total_document_view_time_sec',
+                    'relevant_document_view_time_sec',
+                    'ai_literacy_score',
                 ], true)
             ) {
                 $csvRow[] = number_format((float) $value, 2, '.', '');
@@ -2291,6 +2418,12 @@ require __DIR__ . '/../views/header.php';
                     Data for analysis
                 </a>
                 <a
+                    href="/dashboard/?tab=data_for_analysis_all<?= e($includeTestQuery) ?>"
+                    class="text-center px-3 py-2 text-xs font-semibold rounded-lg border transition <?= $currentTab === 'data_for_analysis_all' ? 'accent-bg text-white border-transparent' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100' ?>"
+                >
+                    Data for analysis (all)
+                </a>
+                <a
                     href="/dashboard/?tab=data<?= e($includeTestQuery) ?>"
                     class="text-center px-3 py-2 text-xs font-semibold rounded-lg border transition <?= $currentTab === 'data' ? 'accent-bg text-white border-transparent' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100' ?>"
                 >
@@ -2312,6 +2445,8 @@ require __DIR__ . '/../views/header.php';
                         <option value="inspection" <?= $currentTab === 'inspection' ? 'selected' : '' ?>>Inspection Behavior</option>
                         <option value="participants_analysis" <?= $currentTab === 'participants_analysis' ? 'selected' : '' ?>>Participants</option>
                         <option value="task_level_analysis" <?= $currentTab === 'task_level_analysis' ? 'selected' : '' ?>>Task-Level Data</option>
+                        <option value="task_level_analysis_all" <?= $currentTab === 'task_level_analysis_all' ? 'selected' : '' ?>>Task-Level Data (all)</option>
+                        <option value="data_for_analysis_all" <?= $currentTab === 'data_for_analysis_all' ? 'selected' : '' ?>>Data for analysis (all)</option>
                         <?php if ($currentTab === 'participant' && $participantDetailId !== false && $participantDetailId !== null): ?>
                             <option value="participant" selected>Participant <?= e((string) $participantDetailId) ?></option>
                         <?php endif; ?>
@@ -2346,6 +2481,12 @@ require __DIR__ . '/../views/header.php';
                 class="px-3 py-1.5 text-sm font-medium whitespace-nowrap rounded-md transition <?= $currentTab === 'data_for_analysis' ? 'accent-bg text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100' ?>"
             >
                 Data for analysis
+            </a>
+                    <a
+                href="/dashboard/?tab=data_for_analysis_all<?= e($includeTestQuery) ?>"
+                class="px-3 py-1.5 text-sm font-medium whitespace-nowrap rounded-md transition <?= $currentTab === 'data_for_analysis_all' ? 'accent-bg text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100' ?>"
+            >
+                Data for analysis (all)
             </a>
                     <a
                 href="/dashboard/?tab=data<?= e($includeTestQuery) ?>"
@@ -2391,6 +2532,12 @@ require __DIR__ . '/../views/header.php';
                     class="px-3 py-1.5 text-sm font-medium whitespace-nowrap rounded-md transition <?= $currentTab === 'task_level_analysis' ? 'accent-bg text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100' ?>"
                 >
                     Task-Level Data
+                </a>
+                <a
+                    href="/dashboard/?tab=task_level_analysis_all<?= e($includeTestQuery) ?>"
+                    class="px-3 py-1.5 text-sm font-medium whitespace-nowrap rounded-md transition <?= $currentTab === 'task_level_analysis_all' ? 'accent-bg text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100' ?>"
+                >
+                    Task-Level Data (all)
                 </a>
                 <?php if ($currentTab === 'participant' && $participantDetailId !== false && $participantDetailId !== null): ?>
                     <a
@@ -2541,10 +2688,16 @@ require __DIR__ . '/../views/header.php';
             <h2 class="text-lg font-semibold text-slate-800 mb-4">Analysis Exports</h2>
             <div class="flex flex-wrap gap-3">
                 <a
-                    href="/export_csv.php?table=analysis_task_level<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
+                    href="/dashboard/?tab=task_level_analysis&download=1<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
-                    Download Task-Level Analysis CSV
+                    Download Task-Level Data (cohort) CSV
+                </a>
+                <a
+                    href="/dashboard/?tab=task_level_analysis_all&download=1<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download Task-Level Data (all) CSV
                 </a>
                 <a
                     href="/export_csv.php?table=analysis_participant_summary<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
@@ -2557,6 +2710,12 @@ require __DIR__ . '/../views/header.php';
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download Data for Analysis CSV
+                </a>
+                <a
+                    href="/dashboard/?tab=data_for_analysis_all&download=1<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download Data for Analysis (all) CSV
                 </a>
                 <a
                     href="/export_csv.php?table=document_events<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
@@ -3206,19 +3365,41 @@ require __DIR__ . '/../views/header.php';
                 </tbody>
             </table>
         </section>
-    <?php elseif ($currentTab === 'task_level_analysis'): ?>
+    <?php elseif ($currentTab === 'task_level_analysis' || $currentTab === 'task_level_analysis_all'): ?>
+        <?php
+        $taskLevelDisplayRows = $currentTab === 'task_level_analysis_all'
+            ? $analysisTaskLevelRows
+            : $analysisCohortTaskRows;
+        $taskLevelDisplayTitle = $currentTab === 'task_level_analysis_all'
+            ? 'Task-Level Data (all entries)'
+            : 'Task-Level Data (analysis_task_level)';
+        $taskLevelDisplayDescription = $currentTab === 'task_level_analysis_all'
+            ? 'All task response rows, including participants who did not fully complete the study.'
+            : 'Task response rows for fully completed analysis cohort participants only.';
+        ?>
         <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
-            <h2 class="text-lg font-semibold text-slate-800 mb-4">Task-Level Data (analysis_task_level)</h2>
+            <div class="flex items-center justify-between gap-3 mb-2">
+                <h2 class="text-lg font-semibold text-slate-800"><?= e($taskLevelDisplayTitle) ?></h2>
+                <a
+                    href="/dashboard/?tab=<?= e($currentTab) ?>&download=1<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download CSV
+                </a>
+            </div>
+            <p class="text-sm text-slate-600 mb-4"><?= e($taskLevelDisplayDescription) ?></p>
             <table class="min-w-full text-sm">
                 <thead>
                     <tr class="border-b border-slate-200 text-slate-600">
                         <th class="text-right py-2 pr-3">participant_id</th>
                         <th class="text-left py-2 pr-3">participant_code</th>
                         <th class="text-left py-2 pr-3">condition_name</th>
+                        <th class="text-left py-2 pr-3">prolific</th>
                         <th class="text-right py-2 px-2">task_number</th>
                         <th class="text-right py-2 px-2">ai_correct</th>
                         <th class="text-left py-2 px-2">selected_option_key</th>
                         <th class="text-right py-2 px-2">final_decision_correct</th>
+                        <th class="text-right py-2 px-2">any_doc_opened</th>
                         <th class="text-right py-2 px-2">relevant_document_opened</th>
                         <th class="text-right py-2 px-2">number_documents_opened</th>
                         <th class="text-right py-2 px-2">total_document_view_time_sec</th>
@@ -3226,11 +3407,17 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-right py-2 px-2">confidence</th>
                         <th class="text-right py-2 px-2">manual_code_required</th>
                         <th class="text-right py-2 px-2">manual_response_correctness</th>
+                        <th class="text-right py-2 px-2">ai_literacy_score</th>
+                        <th class="text-right py-2 px-2">crt_score</th>
+                        <th class="text-left py-2 px-2">prior_ai_use</th>
+                        <th class="text-right py-2 px-2">age</th>
+                        <th class="text-left py-2 px-2">gender</th>
+                        <th class="text-left py-2 px-2">education</th>
                         <th class="text-right py-2 pl-2">low_quality_response</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($analysisCohortTaskRows as $row): ?>
+                    <?php foreach ($taskLevelDisplayRows as $row): ?>
                         <?php $participantId = (int) ($row['participant_id'] ?? 0); ?>
                         <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
                             <td class="py-2 pr-3 text-right">
@@ -3244,10 +3431,12 @@ require __DIR__ . '/../views/header.php';
                             </td>
                             <td class="py-2 pr-3"><?= e((string) ($row['participant_code'] ?? '')) ?></td>
                             <td class="py-2 pr-3"><?= e((string) ($row['condition_name'] ?? '')) ?></td>
+                            <td class="py-2 pr-3"><?= e((string) ($row['prolific'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['task_number'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['ai_correct'] ?? '')) ?></td>
                             <td class="py-2 px-2"><?= e((string) ($row['selected_option_key'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['final_decision_correct'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['inspection_any'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['relevant_document_opened'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['number_documents_opened'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e(number_format((float) ($row['total_document_view_time_sec'] ?? 0), 2)) ?></td>
@@ -3255,55 +3444,85 @@ require __DIR__ . '/../views/header.php';
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['confidence'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['manual_code_required'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['manual_response_correctness'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e($row['ai_literacy_score'] !== null ? number_format((float) $row['ai_literacy_score'], 2) : '') ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['crt_score'] ?? '')) ?></td>
+                            <td class="py-2 px-2"><?= e((string) ($row['ai_experience'] ?? '')) ?></td>
+                            <td class="py-2 px-2 text-right"><?= e((string) ($row['age'] ?? '')) ?></td>
+                            <td class="py-2 px-2"><?= e((string) ($row['gender'] ?? '')) ?></td>
+                            <td class="py-2 px-2"><?= e((string) ($row['education'] ?? '')) ?></td>
                             <td class="py-2 pl-2 text-right"><?= e((string) ($row['low_quality_response'] ?? '')) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
         </section>
-    <?php elseif ($currentTab === 'data_for_analysis'): ?>
+    <?php elseif ($currentTab === 'data_for_analysis' || $currentTab === 'data_for_analysis_all'): ?>
+        <?php
+        $isDataForAnalysisAllTab = $currentTab === 'data_for_analysis_all';
+        $dataForAnalysisDisplayRows = $isDataForAnalysisAllTab
+            ? $analysisDataForAnalysisAllRows
+            : $analysisDataForAnalysisRows;
+        $dataForAnalysisTableId = $isDataForAnalysisAllTab ? 'data-analysis-all-table' : 'data-analysis-table';
+        $dataForAnalysisColumnSelectId = $isDataForAnalysisAllTab ? 'data-analysis-all-column-select' : 'data-analysis-column-select';
+        $dataForAnalysisSelectedColumnLabelId = $isDataForAnalysisAllTab ? 'data-analysis-all-selected-column' : 'data-analysis-selected-column';
+        $dataForAnalysisOpenFiltersId = $isDataForAnalysisAllTab ? 'data-analysis-all-open-filters' : 'data-analysis-open-filters';
+        $dataForAnalysisCloseFiltersId = $isDataForAnalysisAllTab ? 'data-analysis-all-close-filters' : 'data-analysis-close-filters';
+        $dataForAnalysisFilterModalId = $isDataForAnalysisAllTab ? 'data-analysis-all-filter-modal' : 'data-analysis-filter-modal';
+        $dataForAnalysisFilterFieldsId = $isDataForAnalysisAllTab ? 'data-analysis-all-filter-fields' : 'data-analysis-filter-fields';
+        $dataForAnalysisFilterCountId = $isDataForAnalysisAllTab ? 'data-analysis-all-filter-count' : 'data-analysis-filter-count';
+        $dataForAnalysisMoveFirstId = $isDataForAnalysisAllTab ? 'data-analysis-all-move-first' : 'data-analysis-move-first';
+        $dataForAnalysisMoveLeftId = $isDataForAnalysisAllTab ? 'data-analysis-all-move-left' : 'data-analysis-move-left';
+        $dataForAnalysisMoveRightId = $isDataForAnalysisAllTab ? 'data-analysis-all-move-right' : 'data-analysis-move-right';
+        $dataForAnalysisMoveLastId = $isDataForAnalysisAllTab ? 'data-analysis-all-move-last' : 'data-analysis-move-last';
+        $dataForAnalysisClearFiltersId = $isDataForAnalysisAllTab ? 'data-analysis-all-clear-filters' : 'data-analysis-clear-filters';
+        $dataForAnalysisResetId = $isDataForAnalysisAllTab ? 'data-analysis-all-reset' : 'data-analysis-reset';
+        $dataForAnalysisTitle = $isDataForAnalysisAllTab ? 'Data for analysis (all entries)' : 'Data for analysis';
+        $dataForAnalysisDescription = $isDataForAnalysisAllTab
+            ? 'All participants, including those who did not fully complete the study.'
+            : 'Only fully completed participants (tasks_completed=2 and post-survey available).';
+        ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4 overflow-x-auto">
             <div class="flex items-center justify-between gap-3 mb-2">
-                <h2 class="text-lg font-semibold text-slate-800">Data for analysis</h2>
+                <h2 class="text-lg font-semibold text-slate-800"><?= e($dataForAnalysisTitle) ?></h2>
                 <a
-                    href="/dashboard/?tab=data_for_analysis&download=1<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
+                    href="/dashboard/?tab=<?= e($currentTab) ?>&download=1<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download CSV
                 </a>
             </div>
-            <p class="text-sm text-slate-600 mb-4">Only fully completed participants (tasks_completed=2 and post-survey available).</p>
+            <p class="text-sm text-slate-600 mb-4"><?= e($dataForAnalysisDescription) ?></p>
             <div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <p class="text-xs font-semibold text-slate-700">Table controls</p>
-                    <span id="data-analysis-selected-column" class="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 border border-slate-200">Selected column: -</span>
+                    <span id="<?= e($dataForAnalysisSelectedColumnLabelId) ?>" class="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 border border-slate-200">Selected column: -</span>
                 </div>
                 <div class="grid gap-2 md:grid-cols-[auto_minmax(220px,1fr)_auto] md:items-center">
-                    <label for="data-analysis-column-select" class="text-xs text-slate-600">Column order</label>
-                    <select id="data-analysis-column-select" class="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 shadow-sm"></select>
+                    <label for="<?= e($dataForAnalysisColumnSelectId) ?>" class="text-xs text-slate-600">Column order</label>
+                    <select id="<?= e($dataForAnalysisColumnSelectId) ?>" class="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 shadow-sm"></select>
                     <div class="flex flex-wrap items-center gap-2">
-                        <button type="button" id="data-analysis-open-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Filters</button>
-                        <span id="data-analysis-filter-count" class="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 border border-slate-200">0 active</span>
-                        <button type="button" id="data-analysis-move-first" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move first</button>
-                        <button type="button" id="data-analysis-move-left" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move left</button>
-                        <button type="button" id="data-analysis-move-right" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move right</button>
-                        <button type="button" id="data-analysis-move-last" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move last</button>
-                        <button type="button" id="data-analysis-clear-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Clear filters</button>
-                        <button type="button" id="data-analysis-reset" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">Reset all</button>
+                        <button type="button" id="<?= e($dataForAnalysisOpenFiltersId) ?>" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Filters</button>
+                        <span id="<?= e($dataForAnalysisFilterCountId) ?>" class="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 border border-slate-200">0 active</span>
+                        <button type="button" id="<?= e($dataForAnalysisMoveFirstId) ?>" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move first</button>
+                        <button type="button" id="<?= e($dataForAnalysisMoveLeftId) ?>" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move left</button>
+                        <button type="button" id="<?= e($dataForAnalysisMoveRightId) ?>" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move right</button>
+                        <button type="button" id="<?= e($dataForAnalysisMoveLastId) ?>" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Move last</button>
+                        <button type="button" id="<?= e($dataForAnalysisClearFiltersId) ?>" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Clear filters</button>
+                        <button type="button" id="<?= e($dataForAnalysisResetId) ?>" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">Reset all</button>
                     </div>
                 </div>
                 <p class="text-[11px] text-slate-500 mt-2">Use Filters to set column filters in a popup. Move first/last helps quickly re-sequence wide tables.</p>
             </div>
-            <div id="data-analysis-filter-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-900/40 p-4">
+            <div id="<?= e($dataForAnalysisFilterModalId) ?>" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-900/40 p-4">
                 <div class="w-full max-w-3xl rounded-xl bg-white shadow-xl">
                     <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
                         <h3 class="text-sm font-semibold text-slate-800">Set filters</h3>
-                        <button type="button" id="data-analysis-close-filters" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Close</button>
+                        <button type="button" id="<?= e($dataForAnalysisCloseFiltersId) ?>" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100">Close</button>
                     </div>
-                    <div id="data-analysis-filter-fields" class="max-h-[65vh] space-y-3 overflow-y-auto px-4 py-3"></div>
+                    <div id="<?= e($dataForAnalysisFilterFieldsId) ?>" class="max-h-[65vh] space-y-3 overflow-y-auto px-4 py-3"></div>
                 </div>
             </div>
-            <table id="data-analysis-table" class="min-w-full text-sm">
+            <table id="<?= e($dataForAnalysisTableId) ?>" class="min-w-full text-sm">
                 <thead>
                     <tr class="border-b border-slate-200 text-slate-600">
                         <th class="text-right py-2 pr-3">ID</th>
@@ -3324,6 +3543,10 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-right py-2 px-2">task2_number_docs_opened</th>
                         <th class="text-right py-2 px-2">task2_docs_opened_any</th>
                         <th class="text-right py-2 px-2">task2_total_doc_view_time_sec</th>
+                        <th class="text-right py-2 px-2">calibration_score</th>
+                        <th class="text-right py-2 px-2">avg_confidence</th>
+                        <th class="text-right py-2 px-2">avg_docs_opened</th>
+                        <th class="text-right py-2 px-2">total_doc_time_sec</th>
                         <th class="text-right py-2 px-2">ai_literacy</th>
                         <th class="text-right py-2 px-2">crt</th>
                         <th class="text-right py-2 px-2">task_clarity</th>
@@ -3340,12 +3563,12 @@ require __DIR__ . '/../views/header.php';
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($analysisDataForAnalysisRows)): ?>
+                    <?php if (empty($dataForAnalysisDisplayRows)): ?>
                         <tr>
-                            <td class="py-3 text-slate-500" colspan="31">No fully completed participants found.</td>
+                            <td class="py-3 text-slate-500" colspan="35"><?= $isDataForAnalysisAllTab ? 'No participants found.' : 'No fully completed participants found.' ?></td>
                         </tr>
                     <?php else: ?>
-                        <?php foreach ($analysisDataForAnalysisRows as $row): ?>
+                        <?php foreach ($dataForAnalysisDisplayRows as $row): ?>
                             <tr class="border-b border-slate-100 odd:bg-slate-50 last:border-b-0">
                                 <td class="py-2 pr-3 text-right">
                                     <a href="/dashboard/?tab=participant&participant_id=<?= e((string) $row['participant_id']) ?><?= e($includeTestParticipants ? '&include_test=1' : '') ?>" class="accent-text hover:underline font-medium">
@@ -3369,6 +3592,10 @@ require __DIR__ . '/../views/header.php';
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['task2_number_docs_opened'] ?? '')) ?></td>
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['task2_docs_opened_any'] ?? '')) ?></td>
                                 <td class="py-2 px-2 text-right"><?= $row['task2_total_doc_view_time_sec'] === null ? '' : e(number_format((float) $row['task2_total_doc_view_time_sec'], 2)) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['calibration_score'] === null ? '' : e(number_format((float) $row['calibration_score'], 4)) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['avg_confidence'] === null ? '' : e(number_format((float) $row['avg_confidence'], 2)) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['avg_docs_opened'] === null ? '' : e(number_format((float) $row['avg_docs_opened'], 2)) ?></td>
+                                <td class="py-2 px-2 text-right"><?= $row['total_doc_time_sec'] === null ? '' : e(number_format((float) $row['total_doc_time_sec'], 2)) ?></td>
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['ai_literacy'] ?? '')) ?></td>
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['crt_score'] ?? '')) ?></td>
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['task_clarity'] ?? '')) ?></td>
@@ -3388,6 +3615,7 @@ require __DIR__ . '/../views/header.php';
                 </tbody>
             </table>
         </section>
+        <?php if (!$isDataForAnalysisAllTab): ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4 overflow-x-auto">
             <h3 class="text-base font-semibold text-slate-800 mb-3">Not finished surveys</h3>
             <p class="text-sm text-slate-600 mb-3">Participants excluded from Data for analysis because they did not complete all required study components.</p>
@@ -3500,6 +3728,7 @@ require __DIR__ . '/../views/header.php';
                 </table>
             <?php endif; ?>
         </section>
+        <?php endif; ?>
     <?php elseif ($currentTab === 'data'): ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4">
             <form method="get" action="/dashboard/" class="flex flex-wrap items-end gap-3">
@@ -4484,6 +4713,22 @@ require __DIR__ . '/../views/header.php';
         moveLastId: 'data-analysis-move-last',
         clearFiltersId: 'data-analysis-clear-filters',
         resetId: 'data-analysis-reset',
+    });
+    initInteractiveAnalysisTable({
+        tableId: 'data-analysis-all-table',
+        selectId: 'data-analysis-all-column-select',
+        selectedColumnLabelId: 'data-analysis-all-selected-column',
+        openFiltersId: 'data-analysis-all-open-filters',
+        closeFiltersId: 'data-analysis-all-close-filters',
+        filterModalId: 'data-analysis-all-filter-modal',
+        filterFieldsId: 'data-analysis-all-filter-fields',
+        filterCountId: 'data-analysis-all-filter-count',
+        moveFirstId: 'data-analysis-all-move-first',
+        moveLeftId: 'data-analysis-all-move-left',
+        moveRightId: 'data-analysis-all-move-right',
+        moveLastId: 'data-analysis-all-move-last',
+        clearFiltersId: 'data-analysis-all-clear-filters',
+        resetId: 'data-analysis-all-reset',
     });
     initInteractiveAnalysisTable({
         tableId: 'data-not-finished-table',

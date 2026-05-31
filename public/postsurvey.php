@@ -556,6 +556,8 @@ require __DIR__ . '/../views/header.php';
         </form>
     <?php else: ?>
         <form id="postsurvey-demographics-form" method="post" action="save_postsurvey.php" class="space-y-4">
+            <input type="hidden" name="participant_id" value="<?= e((string) session_get('participant_id', 0)) ?>">
+            <input type="hidden" name="participant_code" value="<?= e((string) session_get('participant_code', '')) ?>">
             <section class="bg-white shadow rounded-xl p-5">
                 <h2 class="text-lg font-semibold text-slate-800 mb-3">Demographics</h2>
 

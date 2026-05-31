@@ -119,6 +119,7 @@ function analysis_postsurvey_metrics(?array $post): array
     if (!is_array($post)) {
         return [
             'ai_literacy_score' => null,
+            'ai_experience' => null,
             'ai_experience_score' => null,
             'serious_effort' => null,
             'instructions_clarity' => null,
@@ -145,9 +146,14 @@ function analysis_postsurvey_metrics(?array $post): array
     $aiLiteracyScore = count($aiValues) === 4 ? array_sum($aiValues) / 4.0 : null;
     $crtMetrics = analysis_crt_correctness($post);
 
+    $aiExperience = isset($post['ai_experience']) && $post['ai_experience'] !== ''
+        ? (string) $post['ai_experience']
+        : null;
+
     return [
         'ai_literacy_score' => $aiLiteracyScore,
-        'ai_experience_score' => analysis_ai_experience_score(isset($post['ai_experience']) ? (string) $post['ai_experience'] : null),
+        'ai_experience' => $aiExperience,
+        'ai_experience_score' => analysis_ai_experience_score($aiExperience),
         'serious_effort' => isset($post['serious_effort']) && $post['serious_effort'] !== '' ? (int) $post['serious_effort'] : null,
         'instructions_clarity' => isset($post['instructions_clarity']) && $post['instructions_clarity'] !== '' ? (int) $post['instructions_clarity'] : null,
         'task_realism' => isset($post['task_realism']) && $post['task_realism'] !== '' ? (int) $post['task_realism'] : null,
@@ -293,6 +299,20 @@ function analysis_task_level(PDO $pdo, bool $includeTestParticipants = false): a
     $hasDurationSeconds = analysis_column_exists($pdo, 'task_responses', 'duration_seconds');
     $hasShortTimeFlag = analysis_column_exists($pdo, 'task_responses', 'short_time_flag');
     $hasIsRelevantInEvents = analysis_column_exists($pdo, 'document_events', 'is_relevant');
+    $hasProlific = analysis_column_exists($pdo, 'participants', 'prolific');
+    $hasStudyParticipationCode = analysis_column_exists($pdo, 'participants', 'study_participation_code');
+    $prolificSql = $hasProlific
+        ? 'p.prolific'
+        : ($hasStudyParticipationCode
+            ? "CASE
+                WHEN (p.id BETWEEN 103 AND 139) OR (p.id BETWEEN 164 AND 182) THEN 'yes'
+                WHEN p.study_participation_code IS NOT NULL AND CHAR_LENGTH(TRIM(p.study_participation_code)) >= 20 THEN 'yes'
+                ELSE 'no'
+              END"
+            : "CASE
+                WHEN (p.id BETWEEN 103 AND 139) OR (p.id BETWEEN 164 AND 182) THEN 'yes'
+                ELSE 'no'
+              END");
 
     $manualResponseCorrectnessSql = $hasManualResponseCorrectness
         ? 'tr.manual_response_correctness'
@@ -344,6 +364,7 @@ function analysis_task_level(PDO $pdo, bool $includeTestParticipants = false): a
         p.id AS participant_id,
         p.participant_code,
         p.condition_name,
+        ' . $prolificSql . ' AS prolific,
         tr.task_number,
         tr.ai_correct,
         ' . $selectedResponseOptionSql . ' AS selected_response_option,
@@ -514,6 +535,7 @@ function analysis_task_level(PDO $pdo, bool $includeTestParticipants = false): a
             'participant_id' => (int) $row['participant_id'],
             'participant_code' => (string) $row['participant_code'],
             'condition_name' => (string) $row['condition_name'],
+            'prolific' => (string) ($row['prolific'] ?? 'no'),
             'task_number' => (int) $row['task_number'],
             'ai_correct' => (int) $row['ai_correct'],
             'selected_response_option' => $row['selected_response_option'] !== null ? (string) $row['selected_response_option'] : null,
