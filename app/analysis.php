@@ -173,6 +173,18 @@ function analysis_test_participant_prefix(): string
     return defined('TEST_PARTICIPANT_PREFIX') ? (string) TEST_PARTICIPANT_PREFIX : 'TEST-';
 }
 
+/**
+ * Returns 1 when a participant finished the full study (analysis cohort), else 0.
+ */
+function analysis_participant_finished_survey(int $tasksCompleted, mixed $seriousEffort, mixed $completedAt): int
+{
+    return (
+        $tasksCompleted === 2
+        && $seriousEffort !== null
+        && trim((string) ($completedAt ?? '')) !== ''
+    ) ? 1 : 0;
+}
+
 function analysis_sql_quote(string $value): string
 {
     return "'" . str_replace("'", "''", $value) . "'";
@@ -365,6 +377,7 @@ function analysis_task_level(PDO $pdo, bool $includeTestParticipants = false): a
         p.participant_code,
         p.condition_name,
         ' . $prolificSql . ' AS prolific,
+        p.completed_at,
         tr.task_number,
         tr.ai_correct,
         ' . $selectedResponseOptionSql . ' AS selected_response_option,
@@ -536,6 +549,7 @@ function analysis_task_level(PDO $pdo, bool $includeTestParticipants = false): a
             'participant_code' => (string) $row['participant_code'],
             'condition_name' => (string) $row['condition_name'],
             'prolific' => (string) ($row['prolific'] ?? 'no'),
+            'completed_at' => $row['completed_at'] ?? null,
             'task_number' => (int) $row['task_number'],
             'ai_correct' => (int) $row['ai_correct'],
             'selected_response_option' => $row['selected_response_option'] !== null ? (string) $row['selected_response_option'] : null,
@@ -578,8 +592,14 @@ function analysis_task_level(PDO $pdo, bool $includeTestParticipants = false): a
         $seriousEffort = $postMetrics['serious_effort'];
         $lowQualityResponse = (($seriousEffort !== null && $seriousEffort <= 2) || $hasBothShortFlags) ? 1 : 0;
 
+        $tasksCompleted = (int) ($participantTaskFlags[$participantId]['tasks'] ?? 0);
         $analysisRows[] = array_merge($row, $postMetrics, [
             'low_quality_response' => $lowQualityResponse,
+            'finished_survey' => analysis_participant_finished_survey(
+                $tasksCompleted,
+                $seriousEffort,
+                $row['completed_at'] ?? null
+            ),
         ]);
     }
 

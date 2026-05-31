@@ -219,6 +219,11 @@ function build_analysis_data_for_analysis_rows(
             'participant_code' => (string) ($participantRow['participant_code'] ?? ''),
             'condition_name' => (string) ($participantRow['condition_name'] ?? ''),
             'prolific' => (string) ($participantRow['prolific'] ?? 'no'),
+            'finished_survey' => analysis_participant_finished_survey(
+                (int) ($participantRow['tasks_completed'] ?? 0),
+                $participantRow['serious_effort'] ?? null,
+                $participantRow['completed_at'] ?? null
+            ),
             'task1_reliance_choice' => is_array($task1) ? (string) ($task1['reliance_choice'] ?? '') : '',
             'task1_decision_correct' => is_array($task1) ? ($task1['final_decision_correct'] ?? null) : null,
             'task1_confidence' => is_array($task1) ? ($task1['confidence'] ?? null) : null,
@@ -1727,9 +1732,11 @@ foreach ($analysisTaskLevelRows as $taskRow) {
 
 $analysisCohortParticipants = array_values(array_filter(
     $analysisParticipantRows,
-    static fn (array $row): bool => (int) ($row['tasks_completed'] ?? 0) === 2
-        && ($row['serious_effort'] ?? null) !== null
-        && trim((string) ($row['completed_at'] ?? '')) !== ''
+    static fn (array $row): bool => analysis_participant_finished_survey(
+        (int) ($row['tasks_completed'] ?? 0),
+        $row['serious_effort'] ?? null,
+        $row['completed_at'] ?? null
+    ) === 1
 ));
 $analysisNotFinishedRows = [];
 foreach ($analysisParticipantRows as $participantRow) {
@@ -1908,6 +1915,9 @@ $analysisDataForAnalysisColumns = [
     'total_survey_duration_seconds',
 ];
 
+$analysisDataForAnalysisAllColumns = $analysisDataForAnalysisColumns;
+array_splice($analysisDataForAnalysisAllColumns, 4, 0, ['finished_survey']);
+
 $analysisTaskLevelExportColumns = [
     'participant_id',
     'participant_code',
@@ -1933,6 +1943,9 @@ $analysisTaskLevelExportColumns = [
     'education',
     'low_quality_response',
 ];
+
+$analysisTaskLevelAllExportColumns = $analysisTaskLevelExportColumns;
+array_splice($analysisTaskLevelAllExportColumns, 4, 0, ['finished_survey']);
 
 $participantsPerCondition = [];
 foreach ($conditionNames as $conditionName) {
@@ -2295,6 +2308,9 @@ if (in_array($currentTab, ['data_for_analysis', 'data_for_analysis_all'], true) 
     $downloadRows = $currentTab === 'data_for_analysis_all'
         ? $analysisDataForAnalysisAllRows
         : $analysisDataForAnalysisRows;
+    $exportColumns = $currentTab === 'data_for_analysis_all'
+        ? $analysisDataForAnalysisAllColumns
+        : $analysisDataForAnalysisColumns;
     $filename = $currentTab . '_' . date('Ymd_His') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -2307,10 +2323,10 @@ if (in_array($currentTab, ['data_for_analysis', 'data_for_analysis_all'], true) 
         exit('Could not open CSV output stream.');
     }
 
-    fputcsv($output, $analysisDataForAnalysisColumns, ',', '"', '\\');
+    fputcsv($output, $exportColumns, ',', '"', '\\');
     foreach ($downloadRows as $row) {
         $csvRow = [];
-        foreach ($analysisDataForAnalysisColumns as $column) {
+        foreach ($exportColumns as $column) {
             $value = $row[$column] ?? '';
             if ($value === null) {
                 $csvRow[] = '';
@@ -2345,6 +2361,9 @@ if (in_array($currentTab, ['task_level_analysis', 'task_level_analysis_all'], tr
     $downloadRows = $currentTab === 'task_level_analysis_all'
         ? $analysisTaskLevelRows
         : $analysisCohortTaskRows;
+    $exportColumns = $currentTab === 'task_level_analysis_all'
+        ? $analysisTaskLevelAllExportColumns
+        : $analysisTaskLevelExportColumns;
     $filename = $currentTab . '_' . date('Ymd_His') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -2357,10 +2376,10 @@ if (in_array($currentTab, ['task_level_analysis', 'task_level_analysis_all'], tr
         exit('Could not open CSV output stream.');
     }
 
-    fputcsv($output, $analysisTaskLevelExportColumns, ',', '"', '\\');
+    fputcsv($output, $exportColumns, ',', '"', '\\');
     foreach ($downloadRows as $row) {
         $csvRow = [];
-        foreach ($analysisTaskLevelExportColumns as $column) {
+        foreach ($exportColumns as $column) {
             $value = $row[$column] ?? '';
             if ($value === null) {
                 $csvRow[] = '';
@@ -3367,14 +3386,15 @@ require __DIR__ . '/../views/header.php';
         </section>
     <?php elseif ($currentTab === 'task_level_analysis' || $currentTab === 'task_level_analysis_all'): ?>
         <?php
-        $taskLevelDisplayRows = $currentTab === 'task_level_analysis_all'
+        $isTaskLevelAllTab = $currentTab === 'task_level_analysis_all';
+        $taskLevelDisplayRows = $isTaskLevelAllTab
             ? $analysisTaskLevelRows
             : $analysisCohortTaskRows;
-        $taskLevelDisplayTitle = $currentTab === 'task_level_analysis_all'
+        $taskLevelDisplayTitle = $isTaskLevelAllTab
             ? 'Task-Level Data (all entries)'
             : 'Task-Level Data (analysis_task_level)';
-        $taskLevelDisplayDescription = $currentTab === 'task_level_analysis_all'
-            ? 'All task response rows, including participants who did not fully complete the study.'
+        $taskLevelDisplayDescription = $isTaskLevelAllTab
+            ? 'All task response rows, including participants who did not fully complete the study. finished_survey = 1 when tasks_completed = 2, post-survey submitted, and completed_at is set.'
             : 'Task response rows for fully completed analysis cohort participants only.';
         ?>
         <section class="bg-white shadow rounded-xl p-6 mb-6 overflow-x-auto">
@@ -3395,6 +3415,9 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-left py-2 pr-3">participant_code</th>
                         <th class="text-left py-2 pr-3">condition_name</th>
                         <th class="text-left py-2 pr-3">prolific</th>
+                        <?php if ($isTaskLevelAllTab): ?>
+                            <th class="text-right py-2 px-2">finished_survey</th>
+                        <?php endif; ?>
                         <th class="text-right py-2 px-2">task_number</th>
                         <th class="text-right py-2 px-2">ai_correct</th>
                         <th class="text-left py-2 px-2">selected_option_key</th>
@@ -3432,6 +3455,9 @@ require __DIR__ . '/../views/header.php';
                             <td class="py-2 pr-3"><?= e((string) ($row['participant_code'] ?? '')) ?></td>
                             <td class="py-2 pr-3"><?= e((string) ($row['condition_name'] ?? '')) ?></td>
                             <td class="py-2 pr-3"><?= e((string) ($row['prolific'] ?? '')) ?></td>
+                            <?php if ($isTaskLevelAllTab): ?>
+                                <td class="py-2 px-2 text-right"><?= e((string) ($row['finished_survey'] ?? '')) ?></td>
+                            <?php endif; ?>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['task_number'] ?? '')) ?></td>
                             <td class="py-2 px-2 text-right"><?= e((string) ($row['ai_correct'] ?? '')) ?></td>
                             <td class="py-2 px-2"><?= e((string) ($row['selected_option_key'] ?? '')) ?></td>
@@ -3478,7 +3504,7 @@ require __DIR__ . '/../views/header.php';
         $dataForAnalysisResetId = $isDataForAnalysisAllTab ? 'data-analysis-all-reset' : 'data-analysis-reset';
         $dataForAnalysisTitle = $isDataForAnalysisAllTab ? 'Data for analysis (all entries)' : 'Data for analysis';
         $dataForAnalysisDescription = $isDataForAnalysisAllTab
-            ? 'All participants, including those who did not fully complete the study.'
+            ? 'All participants, including those who did not fully complete the study. finished_survey = 1 when tasks_completed = 2, post-survey submitted, and completed_at is set.'
             : 'Only fully completed participants (tasks_completed=2 and post-survey available).';
         ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4 overflow-x-auto">
@@ -3529,6 +3555,9 @@ require __DIR__ . '/../views/header.php';
                         <th class="text-left py-2 pr-3">participant_code</th>
                         <th class="text-left py-2 pr-3">condition</th>
                         <th class="text-left py-2 pr-3">prolific</th>
+                        <?php if ($isDataForAnalysisAllTab): ?>
+                            <th class="text-right py-2 px-2">finished_survey</th>
+                        <?php endif; ?>
                         <th class="text-left py-2 pr-3">task1_reliance_choice</th>
                         <th class="text-right py-2 px-2">task1_decision_correct</th>
                         <th class="text-right py-2 px-2">task1_confidence</th>
@@ -3565,7 +3594,7 @@ require __DIR__ . '/../views/header.php';
                 <tbody>
                     <?php if (empty($dataForAnalysisDisplayRows)): ?>
                         <tr>
-                            <td class="py-3 text-slate-500" colspan="35"><?= $isDataForAnalysisAllTab ? 'No participants found.' : 'No fully completed participants found.' ?></td>
+                            <td class="py-3 text-slate-500" colspan="<?= e((string) ($isDataForAnalysisAllTab ? 36 : 35)) ?>"><?= $isDataForAnalysisAllTab ? 'No participants found.' : 'No fully completed participants found.' ?></td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($dataForAnalysisDisplayRows as $row): ?>
@@ -3578,6 +3607,9 @@ require __DIR__ . '/../views/header.php';
                                 <td class="py-2 pr-3"><?= e((string) ($row['participant_code'] ?? '')) ?></td>
                                 <td class="py-2 pr-3"><?= e((string) ($row['condition_name'] ?? '')) ?></td>
                                 <td class="py-2 pr-3"><?= e((string) ($row['prolific'] ?? '')) ?></td>
+                                <?php if ($isDataForAnalysisAllTab): ?>
+                                    <td class="py-2 px-2 text-right"><?= e((string) ($row['finished_survey'] ?? '')) ?></td>
+                                <?php endif; ?>
                                 <td class="py-2 pr-3"><?= e((string) ($row['task1_reliance_choice'] ?? '')) ?></td>
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_decision_correct'] ?? '')) ?></td>
                                 <td class="py-2 px-2 text-right"><?= e((string) ($row['task1_confidence'] ?? '')) ?></td>
