@@ -1857,6 +1857,19 @@ $analysisDataForAnalysisAllRows = build_analysis_data_for_analysis_rows(
     $analysisTaskRowsByParticipant,
     $analysisPostsurveyByParticipant
 );
+$analysisSeriousEffortAllExportRows = [];
+foreach ($analysisParticipantRows as $participantRow) {
+    $participantId = (int) ($participantRow['participant_id'] ?? 0);
+    if ($participantId <= 0) {
+        continue;
+    }
+
+    $seriousEffort = $participantRow['serious_effort'] ?? null;
+    $analysisSeriousEffortAllExportRows[] = [
+        'participant_id' => $participantId,
+        'serious_effort' => $seriousEffort === null ? '' : (string) (int) $seriousEffort,
+    ];
+}
 $analysisDataForAnalysisByParticipant = [];
 foreach ($analysisDataForAnalysisRows as $analysisRow) {
     $analysisParticipantId = (int) ($analysisRow['participant_id'] ?? 0);
@@ -2304,6 +2317,31 @@ usort($calibrationRows, static function (array $a, array $b): int {
     return ((int) ($a['ai_correct'] ?? 0)) <=> ((int) ($b['ai_correct'] ?? 0));
 });
 
+if ($currentTab === 'data_for_analysis_all' && ((string) ($_GET['download'] ?? '')) === 'serious_effort') {
+    $filename = 'data_for_analysis_all_serious_effort_' . date('Ymd_His') . '.csv';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    $output = fopen('php://output', 'w');
+    if ($output === false) {
+        http_response_code(500);
+        exit('Could not open CSV output stream.');
+    }
+
+    $seriousEffortExportColumns = ['participant_id', 'serious_effort'];
+    fputcsv($output, $seriousEffortExportColumns, ',', '"', '\\');
+    foreach ($analysisSeriousEffortAllExportRows as $row) {
+        fputcsv($output, [
+            (string) ($row['participant_id'] ?? ''),
+            (string) ($row['serious_effort'] ?? ''),
+        ], ',', '"', '\\');
+    }
+    fclose($output);
+    exit;
+}
+
 if (in_array($currentTab, ['data_for_analysis', 'data_for_analysis_all'], true) && ((string) ($_GET['download'] ?? '0')) === '1') {
     $downloadRows = $currentTab === 'data_for_analysis_all'
         ? $analysisDataForAnalysisAllRows
@@ -2735,6 +2773,12 @@ require __DIR__ . '/../views/header.php';
                     class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
                 >
                     Download Data for Analysis (all) CSV
+                </a>
+                <a
+                    href="/dashboard/?tab=data_for_analysis_all&download=serious_effort<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
+                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                >
+                    Download Serious Effort (all) CSV
                 </a>
                 <a
                     href="/export_csv.php?table=document_events<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
@@ -3508,14 +3552,24 @@ require __DIR__ . '/../views/header.php';
             : 'Only fully completed participants (tasks_completed=2 and post-survey available).';
         ?>
         <section class="bg-white shadow rounded-xl p-6 mb-4 overflow-x-auto">
-            <div class="flex items-center justify-between gap-3 mb-2">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
                 <h2 class="text-lg font-semibold text-slate-800"><?= e($dataForAnalysisTitle) ?></h2>
-                <a
-                    href="/dashboard/?tab=<?= e($currentTab) ?>&download=1<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
-                    class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
-                >
-                    Download CSV
-                </a>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a
+                        href="/dashboard/?tab=<?= e($currentTab) ?>&download=1<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
+                        class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                    >
+                        Download CSV
+                    </a>
+                    <?php if ($isDataForAnalysisAllTab): ?>
+                        <a
+                            href="/dashboard/?tab=data_for_analysis_all&download=serious_effort<?= e($includeTestParticipants ? '&include_test=1' : '') ?>"
+                            class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition"
+                        >
+                            Download Serious Effort CSV
+                        </a>
+                    <?php endif; ?>
+                </div>
             </div>
             <p class="text-sm text-slate-600 mb-4"><?= e($dataForAnalysisDescription) ?></p>
             <div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
