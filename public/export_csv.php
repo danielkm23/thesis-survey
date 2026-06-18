@@ -7,6 +7,7 @@ require_once __DIR__ . '/../app/config.php';
 require_once __DIR__ . '/../app/helpers.php';
 require_once __DIR__ . '/../app/db.php';
 require_once __DIR__ . '/../app/analysis.php';
+require_once __DIR__ . '/../app/document_inspection_export.php';
 
 $dashboardSessionKey = 'dashboard_authenticated';
 if (session_get($dashboardSessionKey) !== true) {
@@ -22,6 +23,7 @@ $allowedTables = [
     'raffle_entries',
     'analysis_task_level',
     'analysis_participant_summary',
+    'document_inspection_data',
 ];
 
 $table = (string) ($_GET['table'] ?? '');
@@ -37,6 +39,8 @@ if ($table === 'analysis_task_level') {
     $rows = analysis_task_level($pdo, $includeTestParticipants);
 } elseif ($table === 'analysis_participant_summary') {
     $rows = analysis_participant_summary($pdo, $includeTestParticipants);
+} elseif ($table === 'document_inspection_data') {
+    $rows = document_inspection_export_rows($pdo, $includeTestParticipants);
 } elseif ($table === 'task_responses') {
     $hasSelectedResponseOptionColumn = false;
     $hasCustomResponseTextColumn = false;
