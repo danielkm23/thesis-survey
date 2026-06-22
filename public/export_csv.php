@@ -15,6 +15,59 @@ if (session_get($dashboardSessionKey) !== true) {
     exit('Forbidden.');
 }
 
+function ai_literacy_item_export_rows(PDO $pdo, bool $includeTestParticipants = false): array
+{
+    $items = [
+        1 => 'AI-generated responses can sound convincing even when they are inaccurate.',
+        2 => 'When information from an AI system is important, it is worth checking its accuracy.',
+        3 => 'AI systems may produce information without relying on verified or reliable sources.',
+        4 => 'Even when an AI response appears clear, it may still be incomplete or uncertain.',
+    ];
+
+    $sql = 'SELECT
+            p.id AS participant_id,
+            ps.ai_lit_1,
+            ps.ai_lit_2,
+            ps.ai_lit_3,
+            ps.ai_lit_4
+         FROM participants p
+         INNER JOIN (
+            SELECT ps1.*
+            FROM postsurvey_responses ps1
+            INNER JOIN (
+                SELECT participant_id, MAX(id) AS latest_id
+                FROM postsurvey_responses
+                GROUP BY participant_id
+            ) latest ON latest.latest_id = ps1.id
+         ) ps ON ps.participant_id = p.id';
+
+    if (!$includeTestParticipants) {
+        $sql .= ' WHERE p.participant_code NOT LIKE :test_prefix';
+    }
+    $sql .= ' ORDER BY p.id ASC';
+
+    $stmt = $pdo->prepare($sql);
+    if (!$includeTestParticipants) {
+        $testPrefix = defined('TEST_PARTICIPANT_PREFIX') ? (string) TEST_PARTICIPANT_PREFIX : 'TEST-';
+        $stmt->bindValue(':test_prefix', $testPrefix . '%', PDO::PARAM_STR);
+    }
+    $stmt->execute();
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $exportRow = [
+            'participant_id' => (string) ($row['participant_id'] ?? ''),
+        ];
+        foreach ($items as $itemNumber => $itemText) {
+            $exportRow['ai_lit_' . $itemNumber . '_item'] = $itemText;
+            $exportRow['ai_lit_' . $itemNumber . '_score'] = (string) ($row['ai_lit_' . $itemNumber] ?? '');
+        }
+        $rows[] = $exportRow;
+    }
+
+    return $rows;
+}
+
 $allowedTables = [
     'participants',
     'task_responses',
@@ -24,6 +77,7 @@ $allowedTables = [
     'analysis_task_level',
     'analysis_participant_summary',
     'document_inspection_data',
+    'ai_literacy_items',
 ];
 
 $table = (string) ($_GET['table'] ?? '');
@@ -41,6 +95,8 @@ if ($table === 'analysis_task_level') {
     $rows = analysis_participant_summary($pdo, $includeTestParticipants);
 } elseif ($table === 'document_inspection_data') {
     $rows = document_inspection_export_rows($pdo, $includeTestParticipants);
+} elseif ($table === 'ai_literacy_items') {
+    $rows = ai_literacy_item_export_rows($pdo, $includeTestParticipants);
 } elseif ($table === 'task_responses') {
     $hasSelectedResponseOptionColumn = false;
     $hasCustomResponseTextColumn = false;
